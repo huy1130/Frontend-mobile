@@ -34,7 +34,7 @@ export default function HomeScreen() {
       >
         <SafeAreaView edges={['top']}>
           <View style={styles.headerContent}>
-            <Logo size="md" />
+            <Logo size="sm" style={styles.logo} />
             {isLoggedIn && user ? (
               <TouchableOpacity
                 onPress={() => router.push('/account')}
@@ -151,8 +151,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingRight: 20,
+    paddingLeft: 12,
     paddingVertical: 10,
+  },
+  logo: {
+    marginLeft: -4, // Additional nudge to the left
   },
   userButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
