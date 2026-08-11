@@ -161,6 +161,17 @@ export default function AccountScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity
+                      onPress={() => router.push('/my-vehicles' as any)}
+                      style={styles.btnHistory}
+                    >
+                      <View style={styles.btnNavLeft}>
+                        <Car color="#334155" size={18} />
+                        <Text style={styles.btnHistoryText}>Quản Lý Xe Của Bạn</Text>
+                      </View>
+                      <ArrowRight color="#334155" size={16} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
                       onPress={() => router.push('/history')}
                       style={styles.btnHistory}
                     >

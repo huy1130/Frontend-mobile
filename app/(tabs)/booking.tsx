@@ -2,23 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, CheckCircle2, Car, User } from 'lucide-react-native';
+import { Calendar, CheckCircle2, Car, User, Tag, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { serviceService, ServiceDto } from '../../services/serviceService';
 import { customerService, CustomerVehicleDTO } from '../../services/customerService';
 import { bookingService } from '../../services/bookingService';
+import { promotionService, PromotionDTO } from '../../services/promotionService';
 
 export default function BookingScreen() {
   const { isLoggedIn } = useAuth();
   const router = useRouter();
 
+  const [currentStep, setCurrentStep] = useState(1);
+
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [vehicles, setVehicles] = useState<CustomerVehicleDTO[]>([]);
+  const [promotions, setPromotions] = useState<PromotionDTO[]>([]);
   
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
   const [selectedService, setSelectedService] = useState<number | null>(null);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<number>(1);
+  const [selectedPromotion, setSelectedPromotion] = useState<number | null>(null);
   
   const [bookedSuccess, setBookedSuccess] = useState(false);
   const [bookingRef, setBookingRef] = useState<number | null>(null);
@@ -42,40 +47,96 @@ export default function BookingScreen() {
         setVehicles(res.data);
         if (res.data.length > 0) setSelectedVehicle(res.data[0].vehicleId);
       }).catch(console.error);
+
+      promotionService.getEligiblePromotions().then(res => {
+         // Some endpoints return the array directly, some inside res.data, so let's handle both
+         setPromotions(Array.isArray(res) ? res : (res as any).data || []);
+      }).catch(console.error);
     }
   }, [isLoggedIn]);
 
+  const handleNextStep = () => {
+    if (currentStep === 1) {
+      if (!isLoggedIn) {
+        Alert.alert('Yêu cầu đăng nhập', 'Vui lòng đăng nhập để đặt lịch.', [
+          { text: 'Hủy', style: 'cancel' },
+          { text: 'Đăng nhập', onPress: () => router.push('/account') }
+        ]);
+        return;
+      }
+      if (!selectedVehicle) {
+        Alert.alert('Lỗi', 'Vui lòng chọn xe.');
+        return;
+      }
+      setCurrentStep(2);
+    } else if (currentStep === 2) {
+      if (!selectedService) {
+        Alert.alert('Lỗi', 'Vui lòng chọn dịch vụ.');
+        return;
+      }
+      setCurrentStep(3);
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (currentStep > 1) setCurrentStep(currentStep - 1);
+  };
+
   const handleBooking = async () => {
-    if (!isLoggedIn) {
-      Alert.alert('Yêu cầu đăng nhập', 'Vui lòng đăng nhập để đặt lịch.', [
-        { text: 'Hủy', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/account') }
-      ]);
-      return;
-    }
-    if (!selectedVehicle) {
-      Alert.alert('Lỗi', 'Vui lòng chọn xe.');
-      return;
-    }
-    if (!selectedService) {
-      Alert.alert('Lỗi', 'Vui lòng chọn dịch vụ.');
-      return;
-    }
+    if (!selectedVehicle || !selectedService) return;
 
     setIsSubmitting(true);
     try {
-      const bookingId = await bookingService.createBooking({
+      const payload: any = {
         vehicleId: selectedVehicle,
         serviceId: selectedService,
         slotId: selectedTimeSlot,
-      });
+      };
+      
+      if (selectedPromotion) {
+        payload.promotionId = selectedPromotion;
+      }
+
+      const bookingId = await bookingService.createBooking(payload);
       setBookingRef(bookingId);
       setBookedSuccess(true);
+      setCurrentStep(1); // Reset for next booking
+      setSelectedPromotion(null);
     } catch (error: any) {
       Alert.alert('Lỗi đặt lịch', error.response?.data?.Message || 'Đã có lỗi xảy ra. Vui lòng thử lại sau.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const renderStepper = () => {
+    const steps = [
+      { id: 1, title: 'Thời gian & Xe' },
+      { id: 2, title: 'Dịch vụ' },
+      { id: 3, title: 'Ưu đãi & Xác nhận' }
+    ];
+
+    return (
+      <View style={styles.stepperContainer}>
+        <View style={styles.stepperTrack}>
+          {steps.map((step, index) => (
+            <React.Fragment key={step.id}>
+              <View style={styles.stepIndicatorWrapper}>
+                <View style={[styles.stepCircle, currentStep >= step.id ? styles.stepCircleActive : null]}>
+                  <Text style={[styles.stepNumber, currentStep >= step.id ? styles.stepNumberActive : null]}>{step.id}</Text>
+                </View>
+                <Text style={[styles.stepLabelText, currentStep >= step.id ? styles.stepLabelTextActive : null]}>
+                  {step.title}
+                </Text>
+              </View>
+              {index < steps.length - 1 && (
+                <View style={[styles.stepLine, currentStep > step.id ? styles.stepLineActive : null]} />
+              )}
+            </React.Fragment>
+          ))}
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -126,101 +187,202 @@ export default function BookingScreen() {
             </View>
           ) : (
             <>
-              {/* Step 1: Select Vehicle */}
-              <View style={styles.stepCard}>
-                <Text style={styles.stepTitle}>1. Chọn Xe Của Bạn</Text>
-                {!isLoggedIn ? (
-                  <TouchableOpacity style={styles.loginPrompt} onPress={() => router.push('/account')}>
-                    <User color="#ea580c" size={24} />
-                    <Text style={styles.loginPromptText}>Đăng nhập để lấy danh sách xe của bạn</Text>
-                  </TouchableOpacity>
-                ) : vehicles.length === 0 ? (
-                  <Text style={{ color: '#64748b' }}>Bạn chưa có xe nào. Vui lòng thêm xe ở trang Tài khoản.</Text>
-                ) : (
-                  vehicles.map((v) => (
-                    <TouchableOpacity
-                      key={v.vehicleId}
-                      onPress={() => setSelectedVehicle(v.vehicleId)}
-                      style={[
-                        styles.branchItem,
-                        selectedVehicle === v.vehicleId ? styles.itemSelected : styles.itemDefault
-                      ]}
-                    >
-                      <Text style={styles.branchName}>{v.licensePlate} ({v.vehicleType || 'Khác'})</Text>
-                    </TouchableOpacity>
-                  ))
-                )}
-              </View>
+              {renderStepper()}
 
-              {/* Step 2: Select Service */}
-              <View style={styles.stepCard}>
-                <Text style={styles.stepTitle}>2. Chọn Dịch Vụ</Text>
-                {services.map((svc) => (
-                  <TouchableOpacity
-                    key={svc.serviceId}
-                    onPress={() => setSelectedService(svc.serviceId)}
-                    style={[
-                      styles.serviceItem,
-                      selectedService === svc.serviceId ? styles.itemSelected : styles.itemDefault
-                    ]}
-                  >
-                    <View style={styles.serviceItemLeft}>
-                      <Car color={selectedService === svc.serviceId ? '#f97316' : '#64748b'} size={20} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.serviceName}>{svc.serviceName}</Text>
-                        <Text style={styles.serviceDuration} numberOfLines={1}>{svc.description || 'Chăm sóc chuyên sâu'}</Text>
-                      </View>
+              {/* STEP 1: Vehicle and Time */}
+              {currentStep === 1 && (
+                <View style={styles.stepContent}>
+                  <View style={styles.stepCard}>
+                    <Text style={styles.stepTitle}>Chọn Xe Của Bạn</Text>
+                    {!isLoggedIn ? (
+                      <TouchableOpacity style={styles.loginPrompt} onPress={() => router.push('/account')}>
+                        <User color="#ea580c" size={24} />
+                        <Text style={styles.loginPromptText}>Đăng nhập để lấy danh sách xe của bạn</Text>
+                      </TouchableOpacity>
+                    ) : vehicles.length === 0 ? (
+                      <Text style={{ color: '#64748b' }}>Bạn chưa có xe nào. Vui lòng thêm xe ở trang Tài khoản.</Text>
+                    ) : (
+                      vehicles.map((v) => (
+                        <TouchableOpacity
+                          key={v.vehicleId}
+                          onPress={() => setSelectedVehicle(v.vehicleId)}
+                          style={[
+                            styles.branchItem,
+                            selectedVehicle === v.vehicleId ? styles.itemSelected : styles.itemDefault
+                          ]}
+                        >
+                          <Text style={styles.branchName}>{v.licensePlate} ({v.vehicleType || 'Khác'})</Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </View>
+
+                  <View style={[styles.stepCard, { marginBottom: 24 }]}>
+                    <Text style={styles.stepTitle}>Chọn Khung Giờ</Text>
+                    <View style={styles.timeGrid}>
+                      {timeSlots.map((slot) => (
+                        <TouchableOpacity
+                          key={slot.id}
+                          onPress={() => setSelectedTimeSlot(slot.id)}
+                          style={[
+                            styles.timeSlot,
+                            selectedTimeSlot === slot.id ? styles.timeSelected : styles.timeDefault
+                          ]}
+                        >
+                          <Text style={[
+                            styles.timeText,
+                            selectedTimeSlot === slot.id ? { color: '#fff' } : { color: '#334155' }
+                          ]}>
+                            {slot.time.split(' - ')[0]}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
                     </View>
-                    <Text style={styles.servicePrice}>{svc.price.toLocaleString('vi-VN')}đ</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                  </View>
 
-              {/* Step 3: Time Slot */}
-              <View style={[styles.stepCard, { marginBottom: 24 }]}>
-                <Text style={styles.stepTitle}>3. Chọn Khung Giờ</Text>
-                <View style={styles.timeGrid}>
-                  {timeSlots.map((slot) => (
+                  <TouchableOpacity onPress={handleNextStep} style={styles.confirmBtn}>
+                    <LinearGradient colors={['#f97316', '#ea580c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientConfirm}>
+                      <Text style={styles.confirmText}>Tiếp tục</Text>
+                      <ChevronRight color="white" size={20} />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* STEP 2: Service */}
+              {currentStep === 2 && (
+                <View style={styles.stepContent}>
+                  <View style={styles.stepCard}>
+                    <Text style={styles.stepTitle}>Chọn Dịch Vụ</Text>
+                    {services.map((svc) => (
+                      <TouchableOpacity
+                        key={svc.serviceId}
+                        onPress={() => setSelectedService(svc.serviceId)}
+                        style={[
+                          styles.serviceItem,
+                          selectedService === svc.serviceId ? styles.itemSelected : styles.itemDefault
+                        ]}
+                      >
+                        <View style={styles.serviceItemLeft}>
+                          <Car color={selectedService === svc.serviceId ? '#f97316' : '#64748b'} size={20} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.serviceName}>{svc.serviceName}</Text>
+                            <Text style={styles.serviceDuration} numberOfLines={1}>{svc.description || 'Chăm sóc chuyên sâu'}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.servicePrice}>{svc.price.toLocaleString('vi-VN')}đ</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity onPress={handlePrevStep} style={styles.backButtonAction}>
+                      <ChevronLeft color="#64748b" size={20} />
+                      <Text style={styles.backButtonText}>Quay lại</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity onPress={handleNextStep} style={[styles.nextButtonAction, !selectedService && { opacity: 0.5 }]} disabled={!selectedService}>
+                      <LinearGradient colors={['#f97316', '#ea580c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientAction}>
+                        <Text style={styles.confirmText}>Tiếp tục</Text>
+                        <ChevronRight color="white" size={20} />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* STEP 3: Promotions & Confirm */}
+              {currentStep === 3 && (
+                <View style={styles.stepContent}>
+                  <View style={styles.stepCard}>
+                    <Text style={styles.stepTitle}>Chọn Khuyến Mãi</Text>
+                    
                     <TouchableOpacity
-                      key={slot.id}
-                      onPress={() => setSelectedTimeSlot(slot.id)}
+                      onPress={() => setSelectedPromotion(null)}
                       style={[
-                        styles.timeSlot,
-                        selectedTimeSlot === slot.id ? styles.timeSelected : styles.timeDefault
+                        styles.promoItem,
+                        selectedPromotion === null ? styles.itemSelected : styles.itemDefault
                       ]}
                     >
-                      <Text style={[
-                        styles.timeText,
-                        selectedTimeSlot === slot.id ? { color: '#fff' } : { color: '#334155' }
-                      ]}>
-                        {slot.time.split(' - ')[0]}
-                      </Text>
+                      <View style={styles.promoItemLeft}>
+                        <Tag color={selectedPromotion === null ? '#f97316' : '#64748b'} size={20} />
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text style={styles.promoName}>Không sử dụng khuyến mãi</Text>
+                        </View>
+                      </View>
                     </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
 
-              {/* Confirm Button */}
-              <TouchableOpacity 
-                onPress={handleBooking} 
-                style={[styles.confirmBtn, (!selectedVehicle || !selectedService || isSubmitting) && { opacity: 0.7 }]}
-                disabled={isSubmitting}
-              >
-                <LinearGradient
-                  colors={['#f97316', '#ea580c']}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                  style={styles.gradientConfirm}
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="white" />
-                  ) : (
-                    <>
-                      <Calendar color="white" size={20} />
-                      <Text style={styles.confirmText}>Xác Nhận Đặt Lịch Ngay</Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
+                    {promotions.length === 0 ? (
+                      <Text style={{ color: '#64748b', marginTop: 12, fontStyle: 'italic' }}>Bạn chưa có khuyến mãi nào hợp lệ lúc này.</Text>
+                    ) : (
+                      promotions.map((promo) => (
+                        <TouchableOpacity
+                          key={promo.promotionId}
+                          onPress={() => setSelectedPromotion(promo.promotionId)}
+                          style={[
+                            styles.promoItem,
+                            selectedPromotion === promo.promotionId ? styles.itemSelected : styles.itemDefault
+                          ]}
+                        >
+                          <View style={styles.promoItemLeft}>
+                            <Tag color={selectedPromotion === promo.promotionId ? '#f97316' : '#64748b'} size={20} />
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                              <Text style={styles.promoName}>{promo.promoName}</Text>
+                              <Text style={styles.promoDesc} numberOfLines={2}>{promo.description}</Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </View>
+
+                  <View style={styles.summaryCard}>
+                    <Text style={styles.summaryTitle}>Tóm Tắt Đặt Lịch</Text>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Dịch vụ:</Text>
+                      <Text style={styles.summaryValue}>{services.find(s => s.serviceId === selectedService)?.serviceName}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Xe:</Text>
+                      <Text style={styles.summaryValue}>{vehicles.find(v => v.vehicleId === selectedVehicle)?.licensePlate}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Giờ:</Text>
+                      <Text style={styles.summaryValue}>{timeSlots.find(t => t.id === selectedTimeSlot)?.time}</Text>
+                    </View>
+                    {selectedPromotion && (
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Khuyến mãi:</Text>
+                        <Text style={styles.summaryPromoValue}>{promotions.find(p => p.promotionId === selectedPromotion)?.promoName}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity onPress={handlePrevStep} style={styles.backButtonAction} disabled={isSubmitting}>
+                      <ChevronLeft color="#64748b" size={20} />
+                      <Text style={styles.backButtonText}>Quay lại</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      onPress={handleBooking} 
+                      style={[styles.nextButtonAction, isSubmitting && { opacity: 0.7 }]}
+                      disabled={isSubmitting}
+                    >
+                      <LinearGradient colors={['#059669', '#047857']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientAction}>
+                        {isSubmitting ? (
+                          <ActivityIndicator color="white" />
+                        ) : (
+                          <>
+                            <Text style={styles.confirmText}>Xác nhận đặt lịch</Text>
+                            <Calendar color="white" size={20} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -251,6 +413,68 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '800', fontSize: 16, color: '#0f172a' },
   content: { padding: 20 },
   
+  stepperContainer: {
+    marginBottom: 24,
+    paddingHorizontal: 10,
+  },
+  stepperTrack: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  stepIndicatorWrapper: {
+    alignItems: 'center',
+    width: 70,
+  },
+  stepCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    zIndex: 2,
+  },
+  stepCircleActive: {
+    backgroundColor: '#f97316',
+    borderColor: '#ea580c',
+  },
+  stepNumber: {
+    fontWeight: 'bold',
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  stepNumberActive: {
+    color: '#fff',
+  },
+  stepLabelText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    textAlign: 'center',
+    fontWeight: '600'
+  },
+  stepLabelTextActive: {
+    color: '#f97316',
+    fontWeight: '700'
+  },
+  stepLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#e2e8f0',
+    marginTop: 18, // half of stepCircle height
+    marginHorizontal: -20,
+    zIndex: 1,
+  },
+  stepLineActive: {
+    backgroundColor: '#f97316',
+  },
+  stepContent: {
+    flex: 1,
+  },
+
   successCard: {
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -323,7 +547,8 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
-  stepTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
+  stepTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 16 },
+  
   serviceItem: {
     padding: 16,
     borderRadius: 16,
@@ -342,6 +567,19 @@ const styles = StyleSheet.create({
 
   branchItem: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 10 },
   branchName: { fontWeight: 'bold', fontSize: 14, color: '#0f172a' },
+  
+  promoItem: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  promoItemLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  promoName: { fontWeight: 'bold', fontSize: 14, color: '#0f172a', marginBottom: 4 },
+  promoDesc: { color: '#64748b', fontSize: 12 },
+  
   loginPrompt: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -364,7 +602,56 @@ const styles = StyleSheet.create({
   timeDefault: { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0' },
   timeText: { fontWeight: '800', fontSize: 12 },
 
-  confirmBtn: { width: '100%', borderRadius: 16, overflow: 'hidden', marginBottom: 24 },
+  confirmBtn: { width: '100%', borderRadius: 16, overflow: 'hidden', marginTop: 8 },
   gradientConfirm: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 56, gap: 8 },
   confirmText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    gap: 12
+  },
+  backButtonAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+    height: 56,
+    borderRadius: 16,
+    gap: 8
+  },
+  backButtonText: {
+    color: '#64748b',
+    fontWeight: 'bold',
+    fontSize: 16
+  },
+  nextButtonAction: {
+    flex: 2,
+    borderRadius: 16,
+    overflow: 'hidden'
+  },
+  gradientAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    gap: 8
+  },
+  
+  summaryCard: {
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 24,
+  },
+  summaryTitle: { fontSize: 14, fontWeight: 'bold', color: '#0f172a', marginBottom: 12 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  summaryLabel: { fontSize: 13, color: '#64748b' },
+  summaryValue: { fontSize: 13, fontWeight: 'bold', color: '#0f172a' },
+  summaryPromoValue: { fontSize: 13, fontWeight: 'bold', color: '#ea580c' },
 });
