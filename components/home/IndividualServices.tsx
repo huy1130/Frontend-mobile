@@ -1,9 +1,19 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Clock, Car } from 'lucide-react-native';
-import { mockIndividualServices } from '../../mock/homeData';
+import { serviceService, ServiceDto } from '../../services/serviceService';
 
 export default function IndividualServices() {
+  const [services, setServices] = useState<ServiceDto[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    serviceService.getActiveServices()
+      .then((data) => setServices(data))
+      .catch((err) => console.log('Error fetching services:', err))
+      .finally(() => setIsLoading(false));
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -20,12 +30,16 @@ export default function IndividualServices() {
 
       {/* Services List Grid */}
       <View style={styles.servicesContainer}>
-        {mockIndividualServices.map((svc) => (
-          <View key={svc.id} style={styles.serviceCard}>
+        {isLoading ? (
+          <ActivityIndicator size="large" color="#ea580c" style={{ marginVertical: 20 }} />
+        ) : services.map((svc) => (
+          <View key={svc.serviceId} style={styles.serviceCard}>
             <View style={styles.cardHeader}>
               <View style={styles.textContainer}>
-                <Text style={styles.serviceName}>{svc.name}</Text>
-                <Text style={styles.serviceDesc}>{svc.description}</Text>
+                <Text style={styles.serviceName}>{svc.serviceName}</Text>
+                <Text style={styles.serviceDesc} numberOfLines={3}>
+                  {svc.description || 'Chăm sóc xe chuyên nghiệp'}
+                </Text>
               </View>
 
               <View style={styles.iconBox}>
@@ -36,7 +50,7 @@ export default function IndividualServices() {
             <View style={styles.bottomSection}>
               <View style={styles.durationBox}>
                 <Clock color="#64748b" size={14} />
-                <Text style={styles.durationText}>{svc.durationMinutes} phút</Text>
+                <Text style={styles.durationText}>30 phút</Text>
               </View>
 
               <View style={styles.priceBox}>

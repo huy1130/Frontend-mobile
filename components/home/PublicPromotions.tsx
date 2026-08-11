@@ -1,9 +1,19 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { Tag, Copy, Percent, Calendar } from 'lucide-react-native';
-import { mockPromotions } from '../../mock/homeData';
+import { promotionService, PromotionDTO } from '../../services/promotionService';
 
 export default function PublicPromotions() {
+  const [promotions, setPromotions] = useState<PromotionDTO[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    promotionService.getPublicPromotions()
+      .then(data => setPromotions(data.filter(p => p.isActive)))
+      .catch(err => console.log('Error fetching promotions:', err))
+      .finally(() => setIsLoading(false));
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -25,9 +35,13 @@ export default function PublicPromotions() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {mockPromotions.map((promo) => (
+        {isLoading ? (
+          <ActivityIndicator size="large" color="#ea580c" style={{ margin: 20 }} />
+        ) : promotions.length === 0 ? (
+          <Text style={{ color: '#64748b', padding: 20 }}>Hiện tại không có chương trình khuyến mãi nào.</Text>
+        ) : promotions.map((promo) => (
           <View 
-            key={promo.id}
+            key={promo.promotionId}
             style={styles.card}
           >
             <View>
@@ -35,23 +49,27 @@ export default function PublicPromotions() {
                 <View style={styles.iconBox}>
                   <Percent color="white" size={18} />
                 </View>
-                <Text style={styles.validUntilText}>Hạn: {promo.validUntil}</Text>
+                <Text style={styles.validUntilText}>Hạn: {promo.validTo ? new Date(promo.validTo).toLocaleDateString('vi-VN') : 'Không giới hạn'}</Text>
               </View>
 
-              <Text style={styles.promoTitle}>{promo.title}</Text>
-              <Text style={styles.promoDesc}>{promo.description}</Text>
+              <Text style={styles.promoTitle}>{promo.promoName}</Text>
+              <Text style={styles.promoDesc} numberOfLines={2}>
+                {promo.description || 'Nhanh tay nhận ngay ưu đãi từ HybridWash.'}
+              </Text>
             </View>
 
             <View style={styles.bottomSection}>
               <View>
                 <Text style={styles.codeLabel}>Mã ưu đãi:</Text>
-                <Text style={styles.codeText}>{promo.code}</Text>
+                <Text style={styles.codeText}>{promo.promoCode || 'TỰ ĐỘNG'}</Text>
               </View>
 
-              <TouchableOpacity style={styles.copyButton}>
-                <Copy color="white" size={12} />
-                <Text style={styles.copyButtonText}>Lấy Mã</Text>
-              </TouchableOpacity>
+              {promo.promoCode && (
+                <TouchableOpacity style={styles.copyButton}>
+                  <Copy color="white" size={12} />
+                  <Text style={styles.copyButtonText}>Lấy Mã</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         ))}

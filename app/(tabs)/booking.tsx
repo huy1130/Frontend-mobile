@@ -1,35 +1,81 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, CheckCircle2, Car } from 'lucide-react-native';
+import { Calendar, CheckCircle2, Car, User } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
+import { serviceService, ServiceDto } from '../../services/serviceService';
+import { customerService, CustomerVehicleDTO } from '../../services/customerService';
+import { bookingService } from '../../services/bookingService';
 
 export default function BookingScreen() {
-  const [selectedService, setSelectedService] = useState('s1');
-  const [selectedBranch, setSelectedBranch] = useState('b1');
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState('09:00');
+  const { isLoggedIn } = useAuth();
+  const router = useRouter();
+
+  const [services, setServices] = useState<ServiceDto[]>([]);
+  const [vehicles, setVehicles] = useState<CustomerVehicleDTO[]>([]);
+  
+  const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
+  const [selectedService, setSelectedService] = useState<number | null>(null);
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<number>(1);
+  
   const [bookedSuccess, setBookedSuccess] = useState(false);
-  const [bookingRef, setBookingRef] = useState('');
+  const [bookingRef, setBookingRef] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const services = [
-    { id: 's1', name: 'Rửa Xe Bọt Tuyết & Hút Bụi', price: '150.000đ', duration: '35 phút' },
-    { id: 's2', name: 'Combo Vệ Sinh Nội Thất Chuyên Sâu', price: '450.000đ', duration: '75 phút' },
-    { id: 's3', name: 'Phủ Ceramic Sơn & Tẩy Ố Kính', price: '850.000đ', duration: '120 phút' },
-    { id: 's4', name: 'Vệ Sinh Khoang Máy Hơi Nước Nóng', price: '300.000đ', duration: '45 phút' },
+  const timeSlots = [
+    { id: 1, time: '08:00 - 09:00' },
+    { id: 2, time: '09:00 - 10:00' },
+    { id: 3, time: '10:00 - 11:00' },
+    { id: 4, time: '11:00 - 12:00' },
+    { id: 5, time: '13:00 - 14:00' },
+    { id: 6, time: '14:00 - 15:00' },
+    { id: 7, time: '15:00 - 16:00' },
+    { id: 8, time: '16:00 - 17:00' },
   ];
 
-  const branches = [
-    { id: 'b1', name: 'Chi nhánh Quận 1 - 123 Nguyễn Trãi' },
-    { id: 'b2', name: 'Chi nhánh Quận 7 - 456 Nguyễn Thị Thập' },
-    { id: 'b3', name: 'Chi nhánh Thủ Đức - 789 Võ Văn Ngân' },
-  ];
+  useEffect(() => {
+    serviceService.getActiveServices().then(setServices).catch(console.error);
+    if (isLoggedIn) {
+      customerService.getMyVehicles().then(res => {
+        setVehicles(res.data);
+        if (res.data.length > 0) setSelectedVehicle(res.data[0].vehicleId);
+      }).catch(console.error);
+    }
+  }, [isLoggedIn]);
 
-  const timeSlots = ['08:00', '09:00', '10:00', '11:00', '13:30', '14:30', '15:30', '16:30'];
+  const handleBooking = async () => {
+    if (!isLoggedIn) {
+      Alert.alert('Yêu cầu đăng nhập', 'Vui lòng đăng nhập để đặt lịch.', [
+        { text: 'Hủy', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/account') }
+      ]);
+      return;
+    }
+    if (!selectedVehicle) {
+      Alert.alert('Lỗi', 'Vui lòng chọn xe.');
+      return;
+    }
+    if (!selectedService) {
+      Alert.alert('Lỗi', 'Vui lòng chọn dịch vụ.');
+      return;
+    }
 
-  const handleBooking = () => {
-    const ref = 'BK-' + Math.floor(100000 + Math.random() * 900000);
-    setBookingRef(ref);
-    setBookedSuccess(true);
+    setIsSubmitting(true);
+    try {
+      const bookingId = await bookingService.createBooking({
+        vehicleId: selectedVehicle,
+        serviceId: selectedService,
+        slotId: selectedTimeSlot,
+      });
+      setBookingRef(bookingId);
+      setBookedSuccess(true);
+    } catch (error: any) {
+      Alert.alert('Lỗi đặt lịch', error.response?.data?.Message || 'Đã có lỗi xảy ra. Vui lòng thử lại sau.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -50,21 +96,21 @@ export default function BookingScreen() {
 
               <Text style={styles.successTitle}>Đặt Lịch Thành Công!</Text>
               <Text style={styles.successSubtitle}>
-                Mã lịch hẹn của bạn là <Text style={styles.refCode}>{bookingRef}</Text>. Nhân viên sẽ liên hệ xác nhận trong ít phút.
+                Mã lịch hẹn của bạn là <Text style={styles.refCode}>#{bookingRef}</Text>. Bạn có thể theo dõi tiến độ trong phần Lịch Sử.
               </Text>
 
               <View style={styles.detailsBox}>
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Chi nhánh:</Text>
-                  <Text style={styles.detailValue}>{branches.find(b => b.id === selectedBranch)?.name}</Text>
+                  <Text style={styles.detailLabel}>Xe của bạn:</Text>
+                  <Text style={styles.detailValue}>{vehicles.find(v => v.vehicleId === selectedVehicle)?.licensePlate}</Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Khung giờ:</Text>
-                  <Text style={styles.detailValue}>{selectedTimeSlot} Hôm nay</Text>
+                  <Text style={styles.detailValue}>{timeSlots.find(t => t.id === selectedTimeSlot)?.time} Hôm nay</Text>
                 </View>
                 <View style={[styles.detailRow, { borderBottomWidth: 0, paddingTop: 8 }]}>
                   <Text style={styles.detailLabel}>Dịch vụ:</Text>
-                  <Text style={styles.serviceValue}>{services.find(s => s.id === selectedService)?.name}</Text>
+                  <Text style={styles.serviceValue}>{services.find(s => s.serviceId === selectedService)?.serviceName}</Text>
                 </View>
               </View>
 
@@ -80,43 +126,52 @@ export default function BookingScreen() {
             </View>
           ) : (
             <>
-              {/* Step 1: Select Service */}
+              {/* Step 1: Select Vehicle */}
               <View style={styles.stepCard}>
-                <Text style={styles.stepTitle}>1. Chọn Dịch Vụ Chăm Sóc</Text>
+                <Text style={styles.stepTitle}>1. Chọn Xe Của Bạn</Text>
+                {!isLoggedIn ? (
+                  <TouchableOpacity style={styles.loginPrompt} onPress={() => router.push('/account')}>
+                    <User color="#ea580c" size={24} />
+                    <Text style={styles.loginPromptText}>Đăng nhập để lấy danh sách xe của bạn</Text>
+                  </TouchableOpacity>
+                ) : vehicles.length === 0 ? (
+                  <Text style={{ color: '#64748b' }}>Bạn chưa có xe nào. Vui lòng thêm xe ở trang Tài khoản.</Text>
+                ) : (
+                  vehicles.map((v) => (
+                    <TouchableOpacity
+                      key={v.vehicleId}
+                      onPress={() => setSelectedVehicle(v.vehicleId)}
+                      style={[
+                        styles.branchItem,
+                        selectedVehicle === v.vehicleId ? styles.itemSelected : styles.itemDefault
+                      ]}
+                    >
+                      <Text style={styles.branchName}>{v.licensePlate} ({v.vehicleType || 'Khác'})</Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+
+              {/* Step 2: Select Service */}
+              <View style={styles.stepCard}>
+                <Text style={styles.stepTitle}>2. Chọn Dịch Vụ</Text>
                 {services.map((svc) => (
                   <TouchableOpacity
-                    key={svc.id}
-                    onPress={() => setSelectedService(svc.id)}
+                    key={svc.serviceId}
+                    onPress={() => setSelectedService(svc.serviceId)}
                     style={[
                       styles.serviceItem,
-                      selectedService === svc.id ? styles.itemSelected : styles.itemDefault
+                      selectedService === svc.serviceId ? styles.itemSelected : styles.itemDefault
                     ]}
                   >
                     <View style={styles.serviceItemLeft}>
-                      <Car color={selectedService === svc.id ? '#f97316' : '#64748b'} size={20} />
+                      <Car color={selectedService === svc.serviceId ? '#f97316' : '#64748b'} size={20} />
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.serviceName}>{svc.name}</Text>
-                        <Text style={styles.serviceDuration}>Thời gian: {svc.duration}</Text>
+                        <Text style={styles.serviceName}>{svc.serviceName}</Text>
+                        <Text style={styles.serviceDuration} numberOfLines={1}>{svc.description || 'Chăm sóc chuyên sâu'}</Text>
                       </View>
                     </View>
-                    <Text style={styles.servicePrice}>{svc.price}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Step 2: Select Branch */}
-              <View style={styles.stepCard}>
-                <Text style={styles.stepTitle}>2. Chọn Chi Nhánh</Text>
-                {branches.map((b) => (
-                  <TouchableOpacity
-                    key={b.id}
-                    onPress={() => setSelectedBranch(b.id)}
-                    style={[
-                      styles.branchItem,
-                      selectedBranch === b.id ? styles.itemSelected : styles.itemDefault
-                    ]}
-                  >
-                    <Text style={styles.branchName}>{b.name}</Text>
+                    <Text style={styles.servicePrice}>{svc.price.toLocaleString('vi-VN')}đ</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -127,18 +182,18 @@ export default function BookingScreen() {
                 <View style={styles.timeGrid}>
                   {timeSlots.map((slot) => (
                     <TouchableOpacity
-                      key={slot}
-                      onPress={() => setSelectedTimeSlot(slot)}
+                      key={slot.id}
+                      onPress={() => setSelectedTimeSlot(slot.id)}
                       style={[
                         styles.timeSlot,
-                        selectedTimeSlot === slot ? styles.timeSelected : styles.timeDefault
+                        selectedTimeSlot === slot.id ? styles.timeSelected : styles.timeDefault
                       ]}
                     >
                       <Text style={[
                         styles.timeText,
-                        selectedTimeSlot === slot ? { color: '#fff' } : { color: '#334155' }
+                        selectedTimeSlot === slot.id ? { color: '#fff' } : { color: '#334155' }
                       ]}>
-                        {slot}
+                        {slot.time.split(' - ')[0]}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -146,14 +201,24 @@ export default function BookingScreen() {
               </View>
 
               {/* Confirm Button */}
-              <TouchableOpacity onPress={handleBooking} style={styles.confirmBtn}>
+              <TouchableOpacity 
+                onPress={handleBooking} 
+                style={[styles.confirmBtn, (!selectedVehicle || !selectedService || isSubmitting) && { opacity: 0.7 }]}
+                disabled={isSubmitting}
+              >
                 <LinearGradient
                   colors={['#f97316', '#ea580c']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={styles.gradientConfirm}
                 >
-                  <Calendar color="white" size={20} />
-                  <Text style={styles.confirmText}>Xác Nhận Đặt Lịch Ngay</Text>
+                  {isSubmitting ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Calendar color="white" size={20} />
+                      <Text style={styles.confirmText}>Xác Nhận Đặt Lịch Ngay</Text>
+                    </>
+                  )}
                 </LinearGradient>
               </TouchableOpacity>
             </>
@@ -276,7 +341,22 @@ const styles = StyleSheet.create({
   servicePrice: { color: '#ea580c', fontWeight: '800', fontSize: 16 },
 
   branchItem: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 10 },
-  branchName: { fontWeight: 'bold', fontSize: 12, color: '#0f172a' },
+  branchName: { fontWeight: 'bold', fontSize: 14, color: '#0f172a' },
+  loginPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    backgroundColor: '#fff7ed',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#fed7aa'
+  },
+  loginPromptText: {
+    color: '#ea580c',
+    fontWeight: 'bold',
+    flex: 1
+  },
 
   timeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   timeSlot: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
