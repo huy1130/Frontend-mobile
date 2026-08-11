@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Lock, ArrowRight, ShieldCheck, LogOut, Award, CalendarDays, History, Phone } from 'lucide-react-native';
+import { User, Lock, ArrowRight, ShieldCheck, LogOut, Award, CalendarDays, History, Phone, Car, Eye, EyeOff } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +19,9 @@ export default function AccountScreen() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [licensePlate, setLicensePlate] = useState('');
+  const [vehicleType, setVehicleType] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
     if (!phone || !password) {
@@ -44,25 +47,30 @@ export default function AccountScreen() {
   };
 
   const handleRegister = async () => {
-    if (!phone || !name || !password) {
+    if (!phone || !name || !password || !licensePlate || !vehicleType) {
       Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ thông tin');
       return;
     }
+
+    const phoneRegex = /^\d{10}$/;
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d]).+$/;
+
+    if (!phoneRegex.test(phone)) {
+      Alert.alert('Lỗi', 'Số điện thoại phải bao gồm chính xác 10 chữ số.');
+      return;
+    }
+    if (!passwordRegex.test(password)) {
+      Alert.alert('Lỗi', 'Mật khẩu bắt buộc phải có ít nhất 1 ký tự đặc biệt, 1 chữ in hoa và 1 chữ số.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const response = await authService.register(phone, name, password);
-      // Đăng ký xong, đăng nhập luôn bằng chính sđt và pass đó
-      const loginRes = await authService.login(phone, password);
-      if (loginRes && loginRes.token) {
-        await login(phone, loginRes.token, loginRes.fullName, loginRes.role);
-        Alert.alert('Thành công', 'Đăng ký và đăng nhập thành công!', [
-          { text: 'OK', onPress: () => router.replace('/') }
-        ]);
-      } else {
-        Alert.alert('Thành công', 'Đăng ký thành công! Vui lòng đăng nhập.', [
-          { text: 'OK', onPress: () => setIsRegisterMode(false) }
-        ]);
-      }
+      const response = await authService.register(phone, name, password, licensePlate, vehicleType);
+      
+      Alert.alert('Thành công', 'Đăng ký thành công! Vui lòng đăng nhập.', [
+        { text: 'OK', onPress: () => setIsRegisterMode(false) }
+      ]);
     } catch (error: any) {
       console.log('Register Error:', error.response?.data || error.message);
       Alert.alert('Đăng ký thất bại', error.response?.data?.message || JSON.stringify(error.response?.data) || 'Có lỗi xảy ra khi đăng ký');
@@ -246,9 +254,40 @@ export default function AccountScreen() {
                           <TextInput
                             placeholder="Nhập mật khẩu"
                             placeholderTextColor="#94a3b8"
-                            secureTextEntry
+                            secureTextEntry={!showPassword}
                             value={password}
                             onChangeText={setPassword}
+                            style={styles.textInput}
+                          />
+                          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 4 }}>
+                            {showPassword ? <EyeOff color="#94a3b8" size={18} /> : <Eye color="#94a3b8" size={18} />}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      <View style={styles.fieldBox}>
+                        <Text style={styles.fieldLabel}>Biển số xe</Text>
+                        <View style={styles.inputWrapper}>
+                          <Car color="#f97316" size={18} style={styles.inputIcon} />
+                          <TextInput
+                            placeholder="VD: 51H-12345"
+                            placeholderTextColor="#94a3b8"
+                            value={licensePlate}
+                            onChangeText={setLicensePlate}
+                            style={styles.textInput}
+                            autoCapitalize="characters"
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.fieldBox}>
+                        <Text style={styles.fieldLabel}>Loại xe</Text>
+                        <View style={styles.inputWrapper}>
+                          <Car color="#f97316" size={18} style={styles.inputIcon} />
+                          <TextInput
+                            placeholder="VD: Sedan, SUV, Xe máy..."
+                            placeholderTextColor="#94a3b8"
+                            value={vehicleType}
+                            onChangeText={setVehicleType}
                             style={styles.textInput}
                           />
                         </View>
@@ -299,11 +338,14 @@ export default function AccountScreen() {
                           <TextInput
                             placeholder="Nhập mật khẩu"
                             placeholderTextColor="#94a3b8"
-                            secureTextEntry
+                            secureTextEntry={!showPassword}
                             value={password}
                             onChangeText={setPassword}
                             style={styles.textInput}
                           />
+                          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 4 }}>
+                            {showPassword ? <EyeOff color="#94a3b8" size={20} /> : <Eye color="#94a3b8" size={20} />}
+                          </TouchableOpacity>
                         </View>
                       </View>
 

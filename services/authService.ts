@@ -16,12 +16,14 @@ export const authService = {
     return response;
   },
 
-  register: async (phone: string, fullName: string, password?: string) => {
+  register: async (phone: string, fullName: string, password?: string, licensePlate?: string, vehicleType?: string) => {
     // Gọi API Đăng ký khách hàng
     const response = await axiosClient.post('/auth/register', {
       PhoneNumber: phone, // Sửa lại đúng tên biến DTO
       FullName: fullName,
       Password: password || '123456',
+      LicensePlate: licensePlate,
+      VehicleType: vehicleType,
     });
     return response;
   },
