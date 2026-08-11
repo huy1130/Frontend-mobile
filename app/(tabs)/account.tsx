@@ -1,39 +1,93 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { User, Lock, ArrowRight, ShieldCheck, LogOut, Award, CalendarDays, History, Phone } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { authService } from '../../services/authService';
 
 export default function AccountScreen() {
-  const { isLoggedIn, user, login, logout } = useAuth();
+  const { isLoggedIn, user, isLoading, login, logout, refreshLoyalty } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams();
   const [isRegisterMode, setIsRegisterMode] = useState(params?.mode === 'register');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form states
-  const [account, setAccount] = useState('');
+  const [account, setAccount] = useState(''); // Not used in API directly right now
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    login(phone.toLowerCase().includes('admin') ? 'admin' : 'customer');
-    router.replace('/');
+  const handleLogin = async () => {
+    if (!phone || !password) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số điện thoại và mật khẩu');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await authService.login(phone, password);
+      if (response && response.token) {
+        await login(phone, response.token, response.fullName, response.role);
+        // Direct to home immediately
+        router.replace('/');
+      } else {
+        Alert.alert('Lỗi', 'Không nhận được token từ máy chủ.');
+      }
+    } catch (error: any) {
+      console.log('Login Error:', error.response?.data || error.message);
+      Alert.alert('Đăng nhập thất bại', error.response?.data?.message || JSON.stringify(error.response?.data) || 'Sai thông tin đăng nhập');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleRegister = () => {
-    login('customer');
-    router.replace('/');
+  const handleRegister = async () => {
+    if (!phone || !name || !password) {
+      Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ thông tin');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await authService.register(phone, name, password);
+      // Đăng ký xong, đăng nhập luôn bằng chính sđt và pass đó
+      const loginRes = await authService.login(phone, password);
+      if (loginRes && loginRes.token) {
+        await login(phone, loginRes.token, loginRes.fullName, loginRes.role);
+        Alert.alert('Thành công', 'Đăng ký và đăng nhập thành công!', [
+          { text: 'OK', onPress: () => router.replace('/') }
+        ]);
+      } else {
+        Alert.alert('Thành công', 'Đăng ký thành công! Vui lòng đăng nhập.', [
+          { text: 'OK', onPress: () => setIsRegisterMode(false) }
+        ]);
+      }
+    } catch (error: any) {
+      console.log('Register Error:', error.response?.data || error.message);
+      Alert.alert('Đăng ký thất bại', error.response?.data?.message || JSON.stringify(error.response?.data) || 'Có lỗi xảy ra khi đăng ký');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const fillDemoAccount = (role: string) => {
-    setPhone(role);
-    setPassword('123456');
-    login(role);
-    router.replace('/');
+    if (role === 'admin') {
+      setPhone('admin@hybridwash.vn');
+      setPassword('Admin@123');
+    } else {
+      setPhone('0987654321');
+      setPassword('Customer@123');
+    }
   };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#f97316" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -48,7 +102,7 @@ export default function AccountScreen() {
               /* ================= CUSTOMER PROFILE VIEW ================= */
               <View style={styles.cardWrapper}>
                 <View style={styles.headerBox}>
-                  <Text style={styles.headerLogo}>LOGO</Text>
+                  <Image source={require('../../assets/images/logo-wash.png')} style={styles.logoImage} />
                   <Text style={styles.headerTitle}>Hồ Sơ Khách Hàng</Text>
                   <Text style={styles.headerSubtitle}>Quản lý thông tin và ưu đãi thành viên</Text>
                 </View>
@@ -122,7 +176,7 @@ export default function AccountScreen() {
               <View style={styles.cardWrapper}>
                 {/* Logo & Header */}
                 <View style={styles.headerBox}>
-                  <Text style={styles.headerLogo}>LOGO</Text>
+                  <Image source={require('../../assets/images/logo-wash.png')} style={styles.logoImage} />
                   <Text style={styles.headerTitle}>
                     {isRegisterMode ? 'Đăng Ký Tài Khoản' : 'Đăng Nhập Khách Hàng'}
                   </Text>
@@ -157,20 +211,7 @@ export default function AccountScreen() {
                 <View style={styles.mainCard}>
                   {isRegisterMode ? (
                     <>
-                      <View style={styles.fieldBox}>
-                        <Text style={styles.fieldLabel}>Tài khoản</Text>
-                        <View style={styles.inputWrapper}>
-                          <User color="#f97316" size={18} style={styles.inputIcon} />
-                          <TextInput
-                            placeholder="Nhập tên tài khoản"
-                            placeholderTextColor="#94a3b8"
-                            value={account}
-                            onChangeText={setAccount}
-                            style={styles.textInput}
-                            autoCapitalize="none"
-                          />
-                        </View>
-                      </View>
+
                       <View style={styles.fieldBox}>
                         <Text style={styles.fieldLabel}>Họ và tên</Text>
                         <View style={styles.inputWrapper}>
@@ -213,14 +254,20 @@ export default function AccountScreen() {
                         </View>
                       </View>
 
-                      <TouchableOpacity onPress={handleRegister} style={styles.btnSubmit}>
+                      <TouchableOpacity onPress={handleRegister} style={styles.btnSubmit} disabled={isSubmitting}>
                         <LinearGradient
                           colors={['#f97316', '#ea580c']}
                           start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                           style={styles.gradientSubmit}
                         >
-                          <Text style={styles.btnSubmitText}>Đăng Ký Ngay</Text>
-                          <ArrowRight color="white" size={18} />
+                          {isSubmitting ? (
+                            <ActivityIndicator color="white" />
+                          ) : (
+                            <>
+                              <Text style={styles.btnSubmitText}>Đăng Ký Ngay</Text>
+                              <ArrowRight color="white" size={18} />
+                            </>
+                          )}
                         </LinearGradient>
                       </TouchableOpacity>
 
@@ -260,13 +307,17 @@ export default function AccountScreen() {
                         </View>
                       </View>
 
-                      <TouchableOpacity onPress={handleLogin} style={styles.btnSubmit}>
+                      <TouchableOpacity onPress={handleLogin} style={styles.btnSubmit} disabled={isSubmitting}>
                         <LinearGradient
                           colors={['#f97316', '#ea580c']}
                           start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                           style={[styles.gradientSubmit, { height: 56 }]}
                         >
-                          <Text style={styles.btnSubmitText}>Đăng Nhập Ngay</Text>
+                          {isSubmitting ? (
+                            <ActivityIndicator color="white" />
+                          ) : (
+                            <Text style={styles.btnSubmitText}>Đăng Nhập Ngay</Text>
+                          )}
                         </LinearGradient>
                       </TouchableOpacity>
 
@@ -299,7 +350,7 @@ const styles = StyleSheet.create({
   cardWrapper: { width: '100%', maxWidth: 400, alignSelf: 'center' },
   
   headerBox: { alignItems: 'center', marginBottom: 20 },
-  headerLogo: { fontWeight: 'bold', fontSize: 24, marginBottom: 12 },
+  logoImage: { width: 80, height: 80, resizeMode: 'contain', marginBottom: 12 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#0f172a', marginBottom: 4, textAlign: 'center' },
   headerSubtitle: { color: '#64748b', fontSize: 12, textAlign: 'center', fontWeight: '500' },
   
