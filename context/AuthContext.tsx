@@ -17,7 +17,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (phone: string, token: string, fullName: string, role: string) => Promise<void>;
   logout: () => Promise<void>;
-  refreshLoyalty: () => Promise<void>;
+  refreshLoyalty: (points?: number, tier?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -26,7 +26,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   login: async () => {},
   logout: async () => {},
-  refreshLoyalty: async () => {},
+  refreshLoyalty: async (points?: number, tier?: string) => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -127,9 +127,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const refreshLoyalty = async () => {
+  const refreshLoyalty = async (points?: number, tier?: string) => {
     if (isLoggedIn && user?.role.toLowerCase() === 'customer') {
-      await fetchLoyaltyInfo();
+      if (points !== undefined && tier !== undefined) {
+        setUser(prev => prev ? { ...prev, points, tier } : null);
+        await AsyncStorage.setItem('userTier', tier);
+        await AsyncStorage.setItem('userPoints', points.toString());
+      } else {
+        await fetchLoyaltyInfo();
+      }
     }
   };
 

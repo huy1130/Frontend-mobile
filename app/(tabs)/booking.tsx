@@ -1,14 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, CheckCircle2, Car, User, Tag, ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { Calendar, CheckCircle2, Car, User, Tag, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { serviceService, ServiceDto } from '../../services/serviceService';
 import { customerService, CustomerVehicleDTO } from '../../services/customerService';
 import { bookingService } from '../../services/bookingService';
 import { promotionService, PromotionDTO } from '../../services/promotionService';
+import { timeSlotService, AvailableSlotDto } from '../../services/timeSlotService';
+import { loyaltyService } from '../../services/loyaltyService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const getCustomerIdFromToken = async (): Promise<number | undefined> => {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) return undefined;
+    
+    const base64Url = token.split('.')[1];
+    if (!base64Url) return undefined;
+    
+    // Replace URL-safe chars for standard base64 decoding
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    
+    // Use decodeURIComponent(escape()) to handle Unicode properly just in case
+    const payloadStr = decodeURIComponent(escape(atob(base64)));
+    const payload = JSON.parse(payloadStr);
+    
+    const id = payload['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] || payload.nameid || payload.sub;
+    return id ? parseInt(id, 10) : undefined;
+  } catch (err) {
+    console.error('Lỗi khi giải mã token:', err);
+    return undefined;
+  }
+};
 
 export default function BookingScreen() {
   const { isLoggedIn } = useAuth();
@@ -22,38 +51,81 @@ export default function BookingScreen() {
   
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
   const [selectedService, setSelectedService] = useState<number | null>(null);
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<number>(1);
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<number>(0);
   const [selectedPromotion, setSelectedPromotion] = useState<number | null>(null);
+  const [selectedRedemption, setSelectedRedemption] = useState<number | null>(null);
   
   const [bookedSuccess, setBookedSuccess] = useState(false);
   const [bookingRef, setBookingRef] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const timeSlots = [
-    { id: 1, time: '08:00 - 09:00' },
-    { id: 2, time: '09:00 - 10:00' },
-    { id: 3, time: '10:00 - 11:00' },
-    { id: 4, time: '11:00 - 12:00' },
-    { id: 5, time: '13:00 - 14:00' },
-    { id: 6, time: '14:00 - 15:00' },
-    { id: 7, time: '15:00 - 16:00' },
-    { id: 8, time: '16:00 - 17:00' },
-  ];
+  // Advanced booking & Timeslots
+  const [maxDays, setMaxDays] = useState(7);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [timeSlots, setTimeSlots] = useState<AvailableSlotDto[]>([]);
+  const [isSlotsLoading, setIsSlotsLoading] = useState(false);
+  
+  // Rewards
+  const [myRedemptions, setMyRedemptions] = useState<any[]>([]);
+
+  const generateDates = (days: number) => {
+    const dates = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    return dates;
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      serviceService.getActiveServices().then(setServices).catch(console.error);
+      if (isLoggedIn) {
+        customerService.getMyVehicles().then(res => {
+          setVehicles(res.data);
+          setSelectedVehicle(prev => prev ? prev : (res.data.length > 0 ? res.data[0].vehicleId : null));
+        }).catch(console.error);
+
+        promotionService.getEligiblePromotions().then(res => {
+           setPromotions(Array.isArray(res) ? res : (res as any).data || []);
+        }).catch(console.error);
+
+        loyaltyService.getMySummary().then(res => {
+           let days = 7;
+           if (res && res.currentTier) {
+              const t = res.currentTier.toLowerCase();
+              if (t === 'silver') days = 10;
+              else if (t === 'gold') days = 12;
+              else if (t === 'platinum') days = 14;
+           }
+           setMaxDays(days);
+           setAvailableDates(generateDates(days));
+        }).catch(() => setAvailableDates(generateDates(7)));
+        
+        loyaltyService.getMyRedemptions().then(res => {
+           const redemptions = Array.isArray(res) ? res : (res as any).data || [];
+           setMyRedemptions(redemptions.filter((r: any) => r.status === 'Issued'));
+        }).catch(console.error);
+      } else {
+        setAvailableDates(generateDates(7));
+      }
+    }, [isLoggedIn])
+  );
 
   useEffect(() => {
-    serviceService.getActiveServices().then(setServices).catch(console.error);
-    if (isLoggedIn) {
-      customerService.getMyVehicles().then(res => {
-        setVehicles(res.data);
-        if (res.data.length > 0) setSelectedVehicle(res.data[0].vehicleId);
-      }).catch(console.error);
-
-      promotionService.getEligiblePromotions().then(res => {
-         // Some endpoints return the array directly, some inside res.data, so let's handle both
-         setPromotions(Array.isArray(res) ? res : (res as any).data || []);
-      }).catch(console.error);
-    }
-  }, [isLoggedIn]);
+    if (!selectedDate) return;
+    setIsSlotsLoading(true);
+    timeSlotService.getAvailableSlots(selectedDate)
+      .then(slots => {
+        slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+        setTimeSlots(slots);
+        setSelectedTimeSlot(0); // reset when date changes
+      })
+      .catch(console.error)
+      .finally(() => setIsSlotsLoading(false));
+  }, [selectedDate]);
 
   const handleNextStep = () => {
     if (currentStep === 1) {
@@ -66,6 +138,10 @@ export default function BookingScreen() {
       }
       if (!selectedVehicle) {
         Alert.alert('Lỗi', 'Vui lòng chọn xe.');
+        return;
+      }
+      if (!selectedTimeSlot) {
+        Alert.alert('Lỗi', 'Vui lòng chọn khung giờ.');
         return;
       }
       setCurrentStep(2);
@@ -83,7 +159,7 @@ export default function BookingScreen() {
   };
 
   const handleBooking = async () => {
-    if (!selectedVehicle || !selectedService) return;
+    if (!selectedVehicle || !selectedService || !selectedTimeSlot) return;
 
     setIsSubmitting(true);
     try {
@@ -91,19 +167,31 @@ export default function BookingScreen() {
         vehicleId: selectedVehicle,
         serviceId: selectedService,
         slotId: selectedTimeSlot,
+        bookingDate: selectedDate,
       };
+      
+      if (isLoggedIn) {
+        const customerId = await getCustomerIdFromToken();
+        if (customerId) {
+          payload.customerId = customerId;
+        }
+      }
       
       if (selectedPromotion) {
         payload.promotionId = selectedPromotion;
       }
+      if (selectedRedemption) {
+        payload.redemptionId = selectedRedemption;
+      }
 
-      const bookingId = await bookingService.createBooking(payload);
-      setBookingRef(bookingId);
+      const bookingResponse = await bookingService.createBooking(payload);
+      setBookingRef(bookingResponse.bookingId);
       setBookedSuccess(true);
       setCurrentStep(1); // Reset for next booking
       setSelectedPromotion(null);
+      setSelectedRedemption(null);
     } catch (error: any) {
-      Alert.alert('Lỗi đặt lịch', error.response?.data?.Message || 'Đã có lỗi xảy ra. Vui lòng thử lại sau.');
+      Alert.alert('Lỗi đặt lịch', error.response?.data?.Message || error.response?.data?.message || 'Đã có lỗi xảy ra. Vui lòng thử lại sau.');
     } finally {
       setIsSubmitting(false);
     }
@@ -167,7 +255,12 @@ export default function BookingScreen() {
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Khung giờ:</Text>
-                  <Text style={styles.detailValue}>{timeSlots.find(t => t.id === selectedTimeSlot)?.time} Hôm nay</Text>
+                  <Text style={styles.detailValue}>
+                    {(() => {
+                      const slot = timeSlots.find(t => t.slotId === selectedTimeSlot);
+                      return slot ? `${slot.startTime.substring(0, 5)} - ${slot.endTime.substring(0, 5)} Hôm nay` : '';
+                    })()}
+                  </Text>
                 </View>
                 <View style={[styles.detailRow, { borderBottomWidth: 0, paddingTop: 8 }]}>
                   <Text style={styles.detailLabel}>Dịch vụ:</Text>
@@ -217,30 +310,88 @@ export default function BookingScreen() {
                     )}
                   </View>
 
-                  <View style={[styles.stepCard, { marginBottom: 24 }]}>
-                    <Text style={styles.stepTitle}>Chọn Khung Giờ</Text>
-                    <View style={styles.timeGrid}>
-                      {timeSlots.map((slot) => (
-                        <TouchableOpacity
-                          key={slot.id}
-                          onPress={() => setSelectedTimeSlot(slot.id)}
-                          style={[
-                            styles.timeSlot,
-                            selectedTimeSlot === slot.id ? styles.timeSelected : styles.timeDefault
-                          ]}
-                        >
-                          <Text style={[
-                            styles.timeText,
-                            selectedTimeSlot === slot.id ? { color: '#fff' } : { color: '#334155' }
-                          ]}>
-                            {slot.time.split(' - ')[0]}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                  <View style={[styles.stepCard, { marginBottom: 16 }]}>
+                    <Text style={styles.stepTitle}>Chọn Ngày</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                      {availableDates.map(dateStr => {
+                        const dateObj = new Date(dateStr);
+                        const day = dateObj.getDate();
+                        const month = dateObj.getMonth() + 1;
+                        const isSelected = selectedDate === dateStr;
+                        return (
+                          <TouchableOpacity 
+                            key={dateStr}
+                            onPress={() => setSelectedDate(dateStr)}
+                            style={[styles.dateItem, isSelected ? styles.dateItemSelected : styles.dateItemDefault]}
+                          >
+                            <Text style={[styles.dateItemText, isSelected ? { color: '#fff' } : { color: '#334155' }]}>
+                              {day}/{month}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
                   </View>
 
-                  <TouchableOpacity onPress={handleNextStep} style={styles.confirmBtn}>
+                  <View style={[styles.stepCard, { marginBottom: 24 }]}>
+                    <Text style={styles.stepTitle}>Chọn Khung Giờ</Text>
+                    {isSlotsLoading ? (
+                       <ActivityIndicator color="#f97316" style={{ marginVertical: 20 }} />
+                    ) : timeSlots.length === 0 ? (
+                       <Text style={{ color: '#64748b' }}>Không có khung giờ nào trong ngày này.</Text>
+                    ) : (
+                      <View style={styles.timeGrid}>
+                        {timeSlots.map((slot) => {
+                          const selectedVeh = vehicles.find(v => v.vehicleId === selectedVehicle);
+                          const isCar = selectedVeh?.vehicleType?.toLowerCase().includes('ô tô') || selectedVeh?.vehicleType?.toLowerCase().includes('car') || false;
+                          const remaining = isCar ? slot.remainingCarCapacity : slot.remainingBikeCapacity;
+                          const isAvailable = remaining > 0;
+                          
+                          // Check if past hour
+                          const today = new Date().toISOString().split('T')[0];
+                          const isToday = selectedDate === today;
+                          let isPast = false;
+                          if (isToday && slot.startTime) {
+                            const now = new Date();
+                            const [startH, startM] = slot.startTime.split(':').map(Number);
+                            if (startH < now.getHours() || (startH === now.getHours() && startM <= now.getMinutes())) {
+                              isPast = true;
+                            }
+                          }
+                          const canBook = isAvailable && !isPast;
+                          
+                          return (
+                            <TouchableOpacity
+                              key={slot.slotId}
+                              disabled={!canBook}
+                              onPress={() => setSelectedTimeSlot(slot.slotId)}
+                              style={[
+                                styles.timeSlot,
+                                !canBook ? { backgroundColor: '#f1f5f9', opacity: 0.5 } : 
+                                selectedTimeSlot === slot.slotId ? styles.timeSelected : styles.timeDefault
+                              ]}
+                            >
+                              <Text style={[
+                                styles.timeText,
+                                selectedTimeSlot === slot.slotId ? { color: '#fff' } : { color: '#334155' }
+                              ]}>
+                                {`${slot.startTime.substring(0, 5)} - ${slot.endTime.substring(0, 5)}`}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: selectedTimeSlot === slot.slotId ? '#ffedd5' : '#64748b', marginTop: 2 }}>
+                                {isPast ? 'Đã qua' : (isAvailable ? `Còn ${remaining}` : 'Hết chỗ')}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+
+                  <TouchableOpacity 
+                    onPress={handleNextStep} 
+                    style={[styles.confirmBtn, (!selectedVehicle || !selectedTimeSlot) && { opacity: 0.5 }]} 
+                    disabled={!selectedVehicle || !selectedTimeSlot}
+                  >
                     <LinearGradient colors={['#f97316', '#ea580c']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientConfirm}>
                       <Text style={styles.confirmText}>Tiếp tục</Text>
                       <ChevronRight color="white" size={20} />
@@ -294,8 +445,38 @@ export default function BookingScreen() {
               {/* STEP 3: Promotions & Confirm */}
               {currentStep === 3 && (
                 <View style={styles.stepContent}>
+                  <View style={[styles.stepCard, { marginBottom: 16 }]}>
+                    <Text style={styles.stepTitle}>Phần Thưởng Của Bạn</Text>
+                    {myRedemptions.length === 0 ? (
+                      <Text style={{ color: '#64748b', fontStyle: 'italic' }}>Bạn chưa có phần thưởng nào.</Text>
+                    ) : (
+                      myRedemptions.map((redemption) => (
+                        <TouchableOpacity
+                          key={redemption.redemptionId}
+                          onPress={() => setSelectedRedemption(selectedRedemption === redemption.redemptionId ? null : redemption.redemptionId)}
+                          style={[
+                            styles.promoItem,
+                            selectedRedemption === redemption.redemptionId ? styles.itemSelected : styles.itemDefault
+                          ]}
+                        >
+                          <View style={styles.promoItemLeft}>
+                            <Sparkles color={selectedRedemption === redemption.redemptionId ? '#f97316' : '#64748b'} size={20} />
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                              <Text style={styles.promoName}>{redemption.rewardName}</Text>
+                              <Text style={styles.promoDesc}>
+                                {redemption.rewardType === 'FreeWash' ? 'Miễn phí dịch vụ chính' : 
+                                 redemption.rewardType === 'AddOn' ? 'Tặng kèm dịch vụ phụ' : 
+                                 'Giảm giá'}
+                              </Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </View>
+
                   <View style={styles.stepCard}>
-                    <Text style={styles.stepTitle}>Chọn Khuyến Mãi</Text>
+                    <Text style={styles.stepTitle}>Khuyến Mãi Hệ Thống</Text>
                     
                     <TouchableOpacity
                       onPress={() => setSelectedPromotion(null)}
@@ -347,8 +528,14 @@ export default function BookingScreen() {
                       <Text style={styles.summaryValue}>{vehicles.find(v => v.vehicleId === selectedVehicle)?.licensePlate}</Text>
                     </View>
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Giờ:</Text>
-                      <Text style={styles.summaryValue}>{timeSlots.find(t => t.id === selectedTimeSlot)?.time}</Text>
+                      <Text style={styles.summaryLabel}>Thời gian:</Text>
+                      <Text style={styles.summaryValue}>
+                        {(() => {
+                           const slot = timeSlots.find(t => t.slotId === selectedTimeSlot);
+                           const d = new Date(selectedDate);
+                           return slot ? `${slot.startTime.substring(0,5)} - ${slot.endTime.substring(0,5)} ngày ${d.getDate()}/${d.getMonth()+1}` : '';
+                        })()}
+                      </Text>
                     </View>
                     {selectedPromotion && (
                       <View style={styles.summaryRow}>
@@ -356,6 +543,41 @@ export default function BookingScreen() {
                         <Text style={styles.summaryPromoValue}>{promotions.find(p => p.promotionId === selectedPromotion)?.promoName}</Text>
                       </View>
                     )}
+                    {selectedRedemption && (
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Phần thưởng:</Text>
+                        <Text style={styles.summaryPromoValue}>{myRedemptions.find(r => r.redemptionId === selectedRedemption)?.rewardName}</Text>
+                      </View>
+                    )}
+                    <View style={[styles.summaryRow, { borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 12, marginTop: 4, alignItems: 'flex-end' }]}>
+                      <Text style={[styles.summaryLabel, { fontWeight: 'bold' }]}>Tổng thanh toán:</Text>
+                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#ea580c' }}>
+                        {(() => {
+                           const svc = services.find(s => s.serviceId === selectedService);
+                           if (!svc) return '0đ';
+                           let total = svc.price;
+                           
+                           const promo = promotions.find(p => p.promotionId === selectedPromotion);
+                           if (promo && promo.promoType === 'Discount') {
+                             if (promo.discountType === 'Fixed' && promo.discountValue) total -= promo.discountValue;
+                             else if (promo.discountType === 'Percent' && promo.discountValue) {
+                               let discount = total * promo.discountValue / 100;
+                               if (promo.maxDiscount && discount > promo.maxDiscount) discount = promo.maxDiscount;
+                               total -= discount;
+                             }
+                           }
+                           
+                           const redemption = myRedemptions.find(r => r.redemptionId === selectedRedemption);
+                           if (redemption && redemption.rewardType === 'Discount' && redemption.discountValue) {
+                             total -= redemption.discountValue;
+                           } else if (redemption && redemption.rewardType === 'FreeWash') {
+                             total = 0;
+                           }
+                           
+                           return Math.max(0, total).toLocaleString('vi-VN') + 'đ';
+                        })()}
+                      </Text>
+                    </View>
                   </View>
 
                   <View style={styles.actionRow}>
@@ -596,11 +818,16 @@ const styles = StyleSheet.create({
     flex: 1
   },
 
-  timeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  timeSlot: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
+  timeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between' },
+  timeSlot: { width: '48%', paddingHorizontal: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
   timeSelected: { backgroundColor: '#f97316', borderColor: '#f97316' },
   timeDefault: { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0' },
-  timeText: { fontWeight: '800', fontSize: 12 },
+  timeText: { fontWeight: '800', fontSize: 14 },
+  
+  dateItem: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, borderWidth: 1, minWidth: 60, alignItems: 'center' },
+  dateItemSelected: { backgroundColor: '#f97316', borderColor: '#f97316' },
+  dateItemDefault: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
+  dateItemText: { fontWeight: 'bold', fontSize: 14 },
 
   confirmBtn: { width: '100%', borderRadius: 16, overflow: 'hidden', marginTop: 8 },
   gradientConfirm: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 56, gap: 8 },

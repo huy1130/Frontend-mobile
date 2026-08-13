@@ -1,47 +1,48 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin } from 'lucide-react-native';
+import { useAuth } from '../../context/AuthContext';
+import { bookingService, BookingResponseDTO } from '../../services/bookingService';
 
 export default function HistoryScreen() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'cancelled'>('all');
+  const { user, isLoggedIn } = useAuth();
+  const [historyData, setHistoryData] = useState<BookingResponseDTO[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const historyData = [
-    {
-      id: 'BK-98214',
-      services: ['Rửa Xe Bọt Tuyết & Hút Bụi Cao Cấp'],
-      date: '10/08/2026',
-      time: '14:00',
-      branch: 'Chi nhánh Quận 1 - 123 Nguyễn Trãi',
-      totalPrice: '135.000đ',
-      status: 'completed',
-    },
-    {
-      id: 'BK-88410',
-      services: ['Combo Vệ Sinh Nội Thất Chuyên Sâu'],
-      date: '02/08/2026',
-      time: '09:30',
-      branch: 'Chi nhánh Quận 7 - 456 Nguyễn Thị Thập',
-      totalPrice: '700.000đ',
-      status: 'completed',
-    },
-    {
-      id: 'BK-79901',
-      services: ['Rửa Xe Bọt Tuyết & Hút Bụi Cao Cấp'],
-      date: '05/07/2026',
-      time: '10:00',
-      branch: 'Chi nhánh Quận 1 - 123 Nguyễn Trãi',
-      totalPrice: '150.000đ',
-      status: 'cancelled',
-    },
-  ];
+  const loadHistory = async () => {
+    if (!isLoggedIn || !user?.phone) return;
+    setLoading(true);
+    try {
+      const response = await bookingService.getBookingHistory(user.phone);
+      if (response && response.data) {
+        setHistoryData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching history:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const filtered = historyData.filter(i => filterStatus === 'all' ? true : i.status === filterStatus);
+  useEffect(() => {
+    loadHistory();
+  }, [isLoggedIn, user]);
+
+  const filtered = historyData
+    .filter(i => {
+      if (filterStatus === 'all') return true;
+      if (filterStatus === 'completed') return i.status.toLowerCase() === 'completed';
+      if (filterStatus === 'cancelled') return i.status.toLowerCase() === 'cancelled';
+      return true;
+    })
+    .sort((a, b) => b.bookingId - a.bookingId);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        
+
         {/* Top Header Bar */}
         <View style={styles.headerBar}>
           <Text style={styles.headerLogo}>LOGO</Text>
@@ -49,7 +50,7 @@ export default function HistoryScreen() {
         </View>
 
         <View style={styles.content}>
-          
+
           {/* Filter Pills */}
           <View style={styles.filterContainer}>
             <TouchableOpacity
@@ -81,41 +82,49 @@ export default function HistoryScreen() {
           </View>
 
           {/* Cards */}
-          {filtered.map((item) => (
-            <View key={item.id} style={styles.card}>
+          {loading ? (
+            <ActivityIndicator size="large" color="#f97316" style={{ marginTop: 40 }} />
+          ) : filtered.length === 0 ? (
+            <Text style={{ textAlign: 'center', marginTop: 40, color: '#64748b' }}>Không có dữ liệu lịch sử đặt lịch.</Text>
+          ) : filtered.map((item) => (
+            <View key={item.bookingId} style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={styles.idBadge}>
-                  <Text style={styles.idText}>{item.id}</Text>
+                  <Text style={styles.idText}>Mã Lịch hẹn-{item.bookingId}</Text>
                 </View>
 
-                {item.status === 'completed' ? (
+                {item.status.toLowerCase() === 'completed' ? (
                   <View style={[styles.statusBadge, styles.statusBadgeCompleted]}>
                     <CheckCircle2 color="#059669" size={12} />
                     <Text style={[styles.statusText, { color: '#047857' }]}>Đã Hoàn Thành</Text>
                   </View>
-                ) : (
+                ) : item.status.toLowerCase() === 'cancelled' ? (
                   <View style={[styles.statusBadge, styles.statusBadgeCancelled]}>
                     <XCircle color="#e11d48" size={12} />
                     <Text style={[styles.statusText, { color: '#be123c' }]}>Đã Hủy</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe' }]}>
+                    <Text style={[styles.statusText, { color: '#0369a1' }]}>{item.status}</Text>
                   </View>
                 )}
               </View>
 
               <View style={styles.cardBody}>
-                <Text style={styles.serviceName}>{item.services.join(', ')}</Text>
+                <Text style={styles.serviceName}>{item.serviceName}</Text>
                 <View style={styles.iconRow}>
                   <CalendarIcon color="#f97316" size={14} />
-                  <Text style={styles.iconText}>{item.date} • {item.time}</Text>
+                  <Text style={styles.iconText}>{new Date(item.bookingDate).toLocaleDateString('vi-VN')} • {item.startTime.substring(0, 5)} - {item.endTime.substring(0, 5)}</Text>
                 </View>
                 <View style={styles.iconRow}>
                   <MapPin color="#94a3b8" size={14} />
-                  <Text style={styles.iconTextDim}>{item.branch}</Text>
+                  <Text style={styles.iconTextDim}>Chi nhánh HybridWash</Text>
                 </View>
               </View>
 
               <View style={styles.cardFooter}>
                 <Text style={styles.footerLabel}>Tổng thanh toán:</Text>
-                <Text style={styles.footerValue}>{item.totalPrice}</Text>
+                <Text style={styles.footerValue}>{(item.finalPrice ?? 0).toLocaleString('vi-VN')}đ</Text>
               </View>
             </View>
           ))}
@@ -146,9 +155,9 @@ const styles = StyleSheet.create({
   },
   headerLogo: { fontWeight: 'bold', fontSize: 16 },
   headerTitle: { fontWeight: '800', fontSize: 16, color: '#0f172a' },
-  
+
   content: { padding: 20 },
-  
+
   filterContainer: {
     flexDirection: 'row',
     gap: 8,

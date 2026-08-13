@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Home, CalendarDays, History, User, Car } from 'lucide-react-native';
+import { Home, CalendarDays, History, User, Car, Gift } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 
 export default function TabLayout() {
@@ -46,6 +46,15 @@ export default function TabLayout() {
           title: 'Xe của tôi',
           href: isLoggedIn ? '/my-vehicles' : null,
           tabBarIcon: ({ color, size }) => <Car color={color} size={size} />,
+        }}
+      />
+      
+      <Tabs.Screen
+        name="rewards"
+        options={{
+          title: 'Đổi thưởng',
+          href: isLoggedIn ? '/rewards' : null,
+          tabBarIcon: ({ color, size }) => <Gift color={color} size={size} />,
         }}
       />
       

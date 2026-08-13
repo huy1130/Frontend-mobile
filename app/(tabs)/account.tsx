@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Lock, ArrowRight, ShieldCheck, LogOut, Award, CalendarDays, History, Phone, Car, Eye, EyeOff } from 'lucide-react-native';
+import { User, Lock, ArrowRight, ShieldCheck, LogOut, Award, CalendarDays, History, Phone, Car, Eye, EyeOff, Gift } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -20,7 +20,7 @@ export default function AccountScreen() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
-  const [vehicleType, setVehicleType] = useState('');
+  const [vehicleType, setVehicleType] = useState('Car');
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
@@ -161,6 +161,17 @@ export default function AccountScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity
+                      onPress={() => router.push('/rewards' as any)}
+                      style={[styles.btnHistory, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}
+                    >
+                      <View style={styles.btnNavLeft}>
+                        <Gift color="#d97706" size={18} />
+                        <Text style={[styles.btnHistoryText, { color: '#d97706' }]}>Cửa Hàng Đổi Thưởng</Text>
+                      </View>
+                      <ArrowRight color="#d97706" size={16} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
                       onPress={() => router.push('/my-vehicles' as any)}
                       style={styles.btnHistory}
                     >
@@ -292,15 +303,19 @@ export default function AccountScreen() {
                       </View>
                       <View style={styles.fieldBox}>
                         <Text style={styles.fieldLabel}>Loại xe</Text>
-                        <View style={styles.inputWrapper}>
-                          <Car color="#f97316" size={18} style={styles.inputIcon} />
-                          <TextInput
-                            placeholder="VD: Sedan, SUV, Xe máy..."
-                            placeholderTextColor="#94a3b8"
-                            value={vehicleType}
-                            onChangeText={setVehicleType}
-                            style={styles.textInput}
-                          />
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                          <TouchableOpacity 
+                            onPress={() => setVehicleType('Car')}
+                            style={{ flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: vehicleType === 'Car' ? '#f97316' : '#e2e8f0', backgroundColor: vehicleType === 'Car' ? '#fff7ed' : '#f8fafc', alignItems: 'center' }}
+                          >
+                            <Text style={{ fontWeight: 'bold', color: vehicleType === 'Car' ? '#ea580c' : '#64748b' }}>Ô tô (Car)</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            onPress={() => setVehicleType('Bike')}
+                            style={{ flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: vehicleType === 'Bike' ? '#f97316' : '#e2e8f0', backgroundColor: vehicleType === 'Bike' ? '#fff7ed' : '#f8fafc', alignItems: 'center' }}
+                          >
+                            <Text style={{ fontWeight: 'bold', color: vehicleType === 'Bike' ? '#ea580c' : '#64748b' }}>Xe máy (Bike)</Text>
+                          </TouchableOpacity>
                         </View>
                       </View>
 
