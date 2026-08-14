@@ -11,10 +11,8 @@ import Logo from '../../components/common/Logo';
 
 // Home Components
 import HowItWorks from '../../components/home/HowItWorks';
-import ComboPackages from '../../components/home/ComboPackages';
 import PublicPromotions from '../../components/home/PublicPromotions';
 import IndividualServices from '../../components/home/IndividualServices';
-import Branches from '../../components/home/Branches';
 import Tiers from '../../components/home/Tiers';
 import CallToAction from '../../components/home/CallToAction';
 
@@ -91,10 +89,6 @@ export default function HomeScreen() {
                 <Text style={styles.statValue}>15,400+</Text>
                 <Text style={styles.statLabel}>Khách Hàng</Text>
               </View>
-              <View style={[styles.statItem, styles.statBorder]}>
-                <Text style={styles.statValue}>8+</Text>
-                <Text style={styles.statLabel}>Chi Nhánh</Text>
-              </View>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>48,900+</Text>
                 <Text style={styles.statLabel}>Lượt Đặt Lịch</Text>
@@ -124,10 +118,8 @@ export default function HomeScreen() {
         {/* Main Content Sections */}
         <View style={styles.mainContent}>
           <HowItWorks />
-          <ComboPackages />
           <PublicPromotions />
           <IndividualServices />
-          <Branches />
           <Tiers />
           <CallToAction />
         </View>
