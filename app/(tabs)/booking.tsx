@@ -7,7 +7,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { serviceService, ServiceDto } from '../../services/serviceService';
 import { customerService, CustomerVehicleDTO } from '../../services/customerService';
-import { bookingService } from '../../services/bookingService';
+import { bookingService, BookingResponseDTO } from '../../services/bookingService';
 import { promotionService, PromotionDTO } from '../../services/promotionService';
 import { timeSlotService, AvailableSlotDto } from '../../services/timeSlotService';
 import { loyaltyService } from '../../services/loyaltyService';
@@ -57,6 +57,7 @@ export default function BookingScreen() {
   
   const [bookedSuccess, setBookedSuccess] = useState(false);
   const [bookingRef, setBookingRef] = useState<number | null>(null);
+  const [createdBooking, setCreatedBooking] = useState<BookingResponseDTO | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Advanced booking & Timeslots
@@ -104,9 +105,22 @@ export default function BookingScreen() {
            setAvailableDates(generateDates(days));
         }).catch(() => setAvailableDates(generateDates(7)));
         
-        loyaltyService.getMyRedemptions().then(res => {
-           const redemptions = Array.isArray(res) ? res : (res as any).data || [];
-           setMyRedemptions(redemptions.filter((r: any) => r.status === 'Issued'));
+        Promise.all([
+          loyaltyService.getMyRedemptions().catch(() => []),
+          loyaltyService.getEligibleRewards().catch(() => [])
+        ]).then(([redemptionsRes, rewardsRes]) => {
+          const redemptions = Array.isArray(redemptionsRes) ? redemptionsRes : (redemptionsRes as any).data || [];
+          const rewards = Array.isArray(rewardsRes) ? rewardsRes : (rewardsRes as any).data || [];
+          const filtered = redemptions.filter((r: any) => r.status === 'Issued');
+          const enhanced = filtered.map((r: any) => {
+            const rewardDetails = rewards.find((rw: any) => rw.rewardId === r.rewardId);
+            return {
+              ...r,
+              serviceId: rewardDetails?.serviceId,
+              discountValue: rewardDetails?.discountValue
+            };
+          });
+          setMyRedemptions(enhanced);
         }).catch(console.error);
       } else {
         setAvailableDates(generateDates(7));
@@ -161,6 +175,11 @@ export default function BookingScreen() {
   const handleBooking = async () => {
     if (!selectedVehicle || !selectedService || !selectedTimeSlot) return;
 
+    if (selectedPromotion && selectedRedemption) {
+      Alert.alert('Thông báo', 'Chỉ được chọn khuyến mãi hoặc phần thưởng cho lịch hẹn của bạn.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload: any = {
@@ -186,6 +205,7 @@ export default function BookingScreen() {
 
       const bookingResponse = await bookingService.createBooking(payload);
       setBookingRef(bookingResponse.bookingId);
+      setCreatedBooking(bookingResponse);
       setBookedSuccess(true);
       setCurrentStep(1); // Reset for next booking
       setSelectedPromotion(null);
@@ -251,20 +271,31 @@ export default function BookingScreen() {
               <View style={styles.detailsBox}>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Xe của bạn:</Text>
-                  <Text style={styles.detailValue}>{vehicles.find(v => v.vehicleId === selectedVehicle)?.licensePlate}</Text>
+                  <Text style={styles.detailValue}>{createdBooking?.licensePlate || vehicles.find(v => v.vehicleId === selectedVehicle)?.licensePlate}</Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Khung giờ:</Text>
                   <Text style={styles.detailValue}>
                     {(() => {
+                      if (createdBooking?.startTime && createdBooking?.endTime) {
+                        const d = new Date(createdBooking.bookingDate || selectedDate);
+                        return `${createdBooking.startTime.substring(0, 5)} - ${createdBooking.endTime.substring(0, 5)} ngày ${d.getDate()}/${d.getMonth() + 1}`;
+                      }
                       const slot = timeSlots.find(t => t.slotId === selectedTimeSlot);
-                      return slot ? `${slot.startTime.substring(0, 5)} - ${slot.endTime.substring(0, 5)} Hôm nay` : '';
+                      const d = new Date(selectedDate);
+                      return slot ? `${slot.startTime.substring(0, 5)} - ${slot.endTime.substring(0, 5)} ngày ${d.getDate()}/${d.getMonth() + 1}` : '';
                     })()}
                   </Text>
                 </View>
-                <View style={[styles.detailRow, { borderBottomWidth: 0, paddingTop: 8 }]}>
+                <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Dịch vụ:</Text>
-                  <Text style={styles.serviceValue}>{services.find(s => s.serviceId === selectedService)?.serviceName}</Text>
+                  <Text style={styles.serviceValue}>{createdBooking?.serviceName || services.find(s => s.serviceId === selectedService)?.serviceName}</Text>
+                </View>
+                <View style={[styles.detailRow, { borderBottomWidth: 0, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10, marginTop: 4, justifyContent: 'space-between', alignItems: 'center' }]}>
+                  <Text style={[styles.detailLabel, { fontWeight: 'bold', color: '#0f172a' }]}>Tổng thanh toán:</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '900', color: '#ea580c' }}>
+                    {((createdBooking?.finalPrice ?? 0)).toLocaleString('vi-VN')}đ
+                  </Text>
                 </View>
               </View>
 
@@ -453,7 +484,17 @@ export default function BookingScreen() {
                       myRedemptions.map((redemption) => (
                         <TouchableOpacity
                           key={redemption.redemptionId}
-                          onPress={() => setSelectedRedemption(selectedRedemption === redemption.redemptionId ? null : redemption.redemptionId)}
+                          onPress={() => {
+                            if (selectedRedemption === redemption.redemptionId) {
+                              setSelectedRedemption(null);
+                            } else {
+                              if (selectedPromotion) {
+                                Alert.alert('Thông báo', 'Chỉ được chọn khuyến mãi hoặc phần thưởng cho lịch hẹn của bạn.');
+                                setSelectedPromotion(null);
+                              }
+                              setSelectedRedemption(redemption.redemptionId);
+                            }
+                          }}
                           style={[
                             styles.promoItem,
                             selectedRedemption === redemption.redemptionId ? styles.itemSelected : styles.itemDefault
@@ -499,7 +540,17 @@ export default function BookingScreen() {
                       promotions.map((promo) => (
                         <TouchableOpacity
                           key={promo.promotionId}
-                          onPress={() => setSelectedPromotion(promo.promotionId)}
+                          onPress={() => {
+                            if (selectedPromotion === promo.promotionId) {
+                              setSelectedPromotion(null);
+                            } else {
+                              if (selectedRedemption) {
+                                Alert.alert('Thông báo', 'Chỉ được chọn khuyến mãi hoặc phần thưởng cho lịch hẹn của bạn.');
+                                setSelectedRedemption(null);
+                              }
+                              setSelectedPromotion(promo.promotionId);
+                            }
+                          }}
                           style={[
                             styles.promoItem,
                             selectedPromotion === promo.promotionId ? styles.itemSelected : styles.itemDefault
@@ -522,6 +573,15 @@ export default function BookingScreen() {
                     <View style={styles.summaryRow}>
                       <Text style={styles.summaryLabel}>Dịch vụ:</Text>
                       <Text style={styles.summaryValue}>{services.find(s => s.serviceId === selectedService)?.serviceName}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Giá dịch vụ:</Text>
+                      <Text style={styles.summaryValue}>
+                        {(() => {
+                          const s = services.find(svc => svc.serviceId === selectedService);
+                          return s ? `${s.price.toLocaleString('vi-VN')}đ` : '';
+                        })()}
+                      </Text>
                     </View>
                     <View style={styles.summaryRow}>
                       <Text style={styles.summaryLabel}>Xe:</Text>
@@ -557,21 +617,47 @@ export default function BookingScreen() {
                            if (!svc) return '0đ';
                            let total = svc.price;
                            
-                           const promo = promotions.find(p => p.promotionId === selectedPromotion);
-                           if (promo && promo.promoType === 'Discount') {
-                             if (promo.discountType === 'Fixed' && promo.discountValue) total -= promo.discountValue;
-                             else if (promo.discountType === 'Percent' && promo.discountValue) {
-                               let discount = total * promo.discountValue / 100;
-                               if (promo.maxDiscount && discount > promo.maxDiscount) discount = promo.maxDiscount;
-                               total -= discount;
+                           if (selectedPromotion) {
+                             const promo = promotions.find(p => p.promotionId === selectedPromotion);
+                             if (promo) {
+                               const type = (promo.promoType || '').toLowerCase();
+                               if (type === 'freewash') {
+                                 if (!promo.serviceId || promo.serviceId === selectedService) {
+                                   total = 0;
+                                 }
+                               } else if (type === 'addon') {
+                                 if (promo.serviceId === selectedService) {
+                                   total = 0;
+                                 }
+                               } else if (type === 'discount') {
+                                 if (!promo.serviceId || promo.serviceId === selectedService) {
+                                   if (promo.discountType === 'Fixed' && promo.discountValue) total -= promo.discountValue;
+                                   else if (promo.discountType === 'Percent' && promo.discountValue) {
+                                     let discount = total * promo.discountValue / 100;
+                                     if (promo.maxDiscount && discount > promo.maxDiscount) discount = promo.maxDiscount;
+                                     total -= discount;
+                                   }
+                                 }
+                               }
                              }
                            }
                            
-                           const redemption = myRedemptions.find(r => r.redemptionId === selectedRedemption);
-                           if (redemption && redemption.rewardType === 'Discount' && redemption.discountValue) {
-                             total -= redemption.discountValue;
-                           } else if (redemption && redemption.rewardType === 'FreeWash') {
-                             total = 0;
+                           if (selectedRedemption) {
+                             const redemption = myRedemptions.find(r => r.redemptionId === selectedRedemption);
+                             if (redemption) {
+                               const type = (redemption.rewardType || redemption.reward?.rewardType || '').toLowerCase();
+                               const rServiceId = redemption.serviceId || redemption.reward?.serviceId;
+                               if (type === 'freewash' || type === 'addon') {
+                                 if (!rServiceId || rServiceId === selectedService) {
+                                   total = 0;
+                                 }
+                               } else if (type === 'discount') {
+                                 const val = redemption.discountValue || redemption.reward?.discountValue;
+                                 if (val && (!rServiceId || rServiceId === selectedService)) {
+                                   total -= val;
+                                 }
+                               }
+                             }
                            }
                            
                            return Math.max(0, total).toLocaleString('vi-VN') + 'đ';

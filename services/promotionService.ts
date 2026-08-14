@@ -10,6 +10,7 @@ export interface PromotionDTO {
   discountType?: string;
   discountValue?: number;
   maxDiscount?: number;
+  serviceId?: number;
   validFrom?: string;
   validTo?: string;
   isActive: boolean;

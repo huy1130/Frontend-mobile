@@ -112,6 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      setIsLoggedIn(false);
+      setUser(null);
       await Promise.all([
         AsyncStorage.removeItem('userToken'),
         AsyncStorage.removeItem('userPhone'),
@@ -120,8 +122,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.removeItem('userTier'),
         AsyncStorage.removeItem('userPoints')
       ]);
-      setUser(null);
-      setIsLoggedIn(false);
     } catch (e) {
       console.error('Lỗi khi xoá dữ liệu:', e);
     }

@@ -43,6 +43,7 @@ export interface BookingResponseDTO {
     promotionId?: number | null;
     redemptionId?: number | null;
     addOns?: BookingAddOnDTO[];
+    qrCode?: string;
     status: string;
     createdAt?: string;
 }

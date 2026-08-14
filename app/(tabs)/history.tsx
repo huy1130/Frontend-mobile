@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin } from 'lucide-react-native';
+import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin, QrCode, Tag, PlusCircle, X, ChevronRight } from 'lucide-react-native';
+import QRCodeSVG from 'react-native-qrcode-svg';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService, BookingResponseDTO } from '../../services/bookingService';
+import { promotionService } from '../../services/promotionService';
+import { loyaltyService } from '../../services/loyaltyService';
 
 export default function HistoryScreen() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'cancelled'>('all');
   const { user, isLoggedIn } = useAuth();
   const [historyData, setHistoryData] = useState<BookingResponseDTO[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  const [selectedBooking, setSelectedBooking] = useState<BookingResponseDTO | null>(null);
+  const [promotionsMap, setPromotionsMap] = useState<Record<number, string>>({});
+  const [redemptionsMap, setRedemptionsMap] = useState<Record<number, string>>({});
 
   const loadHistory = async () => {
     if (!isLoggedIn || !user?.phone) return;
@@ -27,7 +34,24 @@ export default function HistoryScreen() {
   };
 
   useEffect(() => {
-    loadHistory();
+    if (isLoggedIn && user?.phone) {
+      loadHistory();
+      loyaltyService.getMyRedemptions().then(res => {
+        const map: Record<number, string> = {};
+        const list = Array.isArray(res) ? res : (res as any)?.data || [];
+        list.forEach((r: any) => map[r.redemptionId] = r.rewardName);
+        setRedemptionsMap(map);
+      }).catch(() => {});
+    } else {
+      setHistoryData([]);
+      setRedemptionsMap({});
+    }
+
+    promotionService.getPublicPromotions().then(res => {
+      const map: Record<number, string> = {};
+      if (Array.isArray(res)) res.forEach(p => map[p.promotionId] = p.promoName);
+      setPromotionsMap(map);
+    }).catch(() => {});
   }, [isLoggedIn, user]);
 
   const filtered = historyData
@@ -112,25 +136,195 @@ export default function HistoryScreen() {
 
               <View style={styles.cardBody}>
                 <Text style={styles.serviceName}>{item.serviceName}</Text>
+                
+                {item.addOns && item.addOns.length > 0 && (
+                  <View style={{ marginBottom: 8 }}>
+                    {item.addOns.map(addon => (
+                      <View key={addon.bookingAddOnId} style={styles.addOnTag}>
+                        <PlusCircle color="#ea580c" size={12} />
+                        <Text style={styles.addOnText}>+ {addon.serviceName}</Text>
+                        {addon.finalPrice === 0 && (
+                          <View style={styles.freeBadge}>
+                            <Text style={styles.freeBadgeText}>Miễn phí</Text>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+
                 <View style={styles.iconRow}>
                   <CalendarIcon color="#f97316" size={14} />
-                  <Text style={styles.iconText}>{new Date(item.bookingDate).toLocaleDateString('vi-VN')} • {item.startTime.substring(0, 5)} - {item.endTime.substring(0, 5)}</Text>
+                  <Text style={styles.iconText}>{new Date(item.bookingDate).toLocaleDateString('vi-VN')} • {item.startTime?.substring(0, 5)} - {item.endTime?.substring(0, 5)}</Text>
                 </View>
                 <View style={styles.iconRow}>
                   <MapPin color="#94a3b8" size={14} />
-                  <Text style={styles.iconTextDim}>Chi nhánh HybridWash</Text>
+                  <Text style={styles.iconTextDim}>{item.licensePlate ? `${item.licensePlate} (${item.vehicleType || 'Xe'})` : 'Chi nhánh HybridWash'}</Text>
                 </View>
               </View>
 
               <View style={styles.cardFooter}>
-                <Text style={styles.footerLabel}>Tổng thanh toán:</Text>
-                <Text style={styles.footerValue}>{(item.finalPrice ?? 0).toLocaleString('vi-VN')}đ</Text>
+                <View>
+                  <Text style={styles.footerLabel}>Tổng thanh toán:</Text>
+                  <Text style={styles.footerValue}>{(item.finalPrice ?? 0).toLocaleString('vi-VN')}đ</Text>
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.detailBtn}
+                  onPress={() => setSelectedBooking(item)}
+                >
+                  <Text style={styles.detailBtnText}>Xem Chi Tiết</Text>
+                  <ChevronRight color="#ea580c" size={16} />
+                </TouchableOpacity>
               </View>
             </View>
           ))}
 
         </View>
       </ScrollView>
+
+      {/* Booking Detail Modal */}
+      {selectedBooking && (
+        <Modal
+          visible={!!selectedBooking}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setSelectedBooking(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Chi Tiết Lịch Đặt</Text>
+                <TouchableOpacity onPress={() => setSelectedBooking(null)} style={styles.closeBtn}>
+                  <X color="#64748b" size={24} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView contentContainerStyle={styles.modalBody}>
+                {/* QR Code Section */}
+                {selectedBooking.qrCode ? (
+                  <View style={styles.qrContainer}>
+                    <View style={styles.qrHeader}>
+                      <QrCode color="#ea580c" size={16} />
+                      <Text style={styles.qrHeaderText}>MÃ QR CHECK-IN</Text>
+                    </View>
+                    <View style={styles.qrCodeBox}>
+                      <QRCodeSVG
+                        value={selectedBooking.qrCode}
+                        size={150}
+                      />
+                    </View>
+                    <Text style={styles.qrSubText}>Đưa mã này cho nhân viên để check-in nhanh</Text>
+                  </View>
+                ) : null}
+
+                {/* Details Grid */}
+                <View style={styles.infoSection}>
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>MÃ ĐẶT LỊCH</Text>
+                      <Text style={styles.infoValue}>#{selectedBooking.bookingId}</Text>
+                    </View>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>TRẠNG THÁI</Text>
+                      <Text style={[styles.infoValue, {
+                        color: ['completed', 'checkedout'].includes(selectedBooking.status.toLowerCase()) ? '#059669'
+                        : ['pending', 'confirmed', 'washing'].includes(selectedBooking.status.toLowerCase()) ? '#0284c7'
+                        : '#e11d48'
+                      }]}>
+                        {selectedBooking.status}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>NGÀY ĐẶT</Text>
+                      <Text style={styles.infoSubValue}>
+                        {selectedBooking.bookingDate ? new Date(selectedBooking.bookingDate).toLocaleDateString('vi-VN') : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>THỜI GIAN</Text>
+                      <Text style={styles.infoSubValue}>
+                        {selectedBooking.startTime?.substring(0, 5)} - {selectedBooking.endTime?.substring(0, 5)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Vehicle */}
+                <View style={styles.divider} />
+                <View style={styles.sectionBox}>
+                  <Text style={styles.infoLabel}>PHƯƠNG TIỆN</Text>
+                  <Text style={styles.infoSubValue}>{selectedBooking.licensePlate} ({selectedBooking.vehicleType || 'Xe'})</Text>
+                </View>
+
+                {/* Service Breakdown */}
+                <View style={styles.divider} />
+                <View style={styles.sectionBox}>
+                  <Text style={styles.infoLabel}>DỊCH VỤ & TẶNG KÈM</Text>
+                  <View style={styles.serviceRow}>
+                    <Text style={styles.serviceTitle}>{selectedBooking.serviceName}</Text>
+                    <Text style={styles.servicePrice}>
+                      {selectedBooking.originalPrice != null ? `${selectedBooking.originalPrice.toLocaleString('vi-VN')}đ` : ''}
+                    </Text>
+                  </View>
+
+                  {selectedBooking.addOns && selectedBooking.addOns.length > 0 && selectedBooking.addOns.map(addon => (
+                    <View key={addon.bookingAddOnId} style={styles.addOnRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <PlusCircle color="#ea580c" size={14} />
+                        <Text style={{ fontSize: 13, color: '#c2410c', fontWeight: '600' }}>{addon.serviceName}</Text>
+                      </View>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: addon.finalPrice === 0 ? '#059669' : '#0f172a' }}>
+                        {addon.finalPrice === 0 ? 'Miễn phí' : `${addon.finalPrice.toLocaleString('vi-VN')}đ`}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Payment Breakdown */}
+                <View style={styles.divider} />
+                <View style={styles.paymentRow}>
+                  <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#475569' }}>Tổng Tiền</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    {selectedBooking.originalPrice != null && selectedBooking.finalPrice != null && selectedBooking.originalPrice > selectedBooking.finalPrice ? (
+                      <>
+                        <Text style={{ fontSize: 12, color: '#94a3b8', textDecorationLine: 'line-through' }}>
+                          {selectedBooking.originalPrice.toLocaleString('vi-VN')}đ
+                        </Text>
+                        <Text style={{ fontSize: 20, fontWeight: '900', color: '#ea580c' }}>
+                          {selectedBooking.finalPrice.toLocaleString('vi-VN')}đ
+                        </Text>
+                        <View style={styles.promoBadge}>
+                          <Tag color="#059669" size={12} />
+                          <Text style={styles.promoBadgeText}>
+                            {selectedBooking.redemptionId && redemptionsMap[selectedBooking.redemptionId]
+                              ? redemptionsMap[selectedBooking.redemptionId]
+                              : selectedBooking.promotionId && promotionsMap[selectedBooking.promotionId]
+                              ? promotionsMap[selectedBooking.promotionId]
+                              : 'Ưu đãi áp dụng'} (-{(selectedBooking.originalPrice - selectedBooking.finalPrice).toLocaleString('vi-VN')}đ)
+                          </Text>
+                        </View>
+                      </>
+                    ) : (
+                      <Text style={{ fontSize: 20, fontWeight: '900', color: '#ea580c' }}>
+                        {(selectedBooking.finalPrice ?? 0).toLocaleString('vi-VN')}đ
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity onPress={() => setSelectedBooking(null)} style={styles.closeModalBtn}>
+                <Text style={styles.closeModalBtnText}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
     </SafeAreaView>
   );
 }
@@ -222,6 +416,10 @@ const styles = StyleSheet.create({
 
   cardBody: { marginBottom: 12 },
   serviceName: { color: '#0f172a', fontWeight: '800', fontSize: 14, marginBottom: 8 },
+  addOnTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  addOnText: { fontSize: 12, fontWeight: 'bold', color: '#ea580c' },
+  freeBadge: { backgroundColor: '#ffedd5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  freeBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#c2410c' },
   iconRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   iconText: { color: '#475569', fontSize: 12 },
   iconTextDim: { color: '#64748b', fontSize: 12 },
@@ -236,4 +434,114 @@ const styles = StyleSheet.create({
   },
   footerLabel: { color: '#94a3b8', fontSize: 12 },
   footerValue: { color: '#ea580c', fontWeight: '800', fontSize: 16 },
+  
+  detailBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff7ed',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ffedd5',
+  },
+  detailBtnText: { color: '#ea580c', fontWeight: 'bold', fontSize: 12, marginRight: 2 },
+
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxHeight: '85%',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  closeBtn: { padding: 4 },
+  modalBody: { padding: 20 },
+
+  qrContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#fff7ed',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ffedd5',
+    borderStyle: 'dashed',
+    marginBottom: 20,
+  },
+  qrHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+  qrHeaderText: { fontSize: 12, fontWeight: '800', color: '#ea580c', letterSpacing: 0.5 },
+  qrCodeBox: { backgroundColor: '#fff', padding: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  qrSubText: { fontSize: 11, color: '#94a3b8', marginTop: 10, textAlign: 'center' },
+
+  infoSection: { gap: 12 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  infoCol: { flex: 1 },
+  infoLabel: { fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 4 },
+  infoValue: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  infoSubValue: { fontSize: 14, fontWeight: '600', color: '#334155' },
+
+  divider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 16 },
+  sectionBox: { gap: 6 },
+  serviceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  serviceTitle: { fontSize: 14, fontWeight: 'bold', color: '#0f172a' },
+  servicePrice: { fontSize: 14, fontWeight: 'bold', color: '#334155' },
+
+  addOnRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff7ed',
+    padding: 10,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+
+  paymentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  promoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ecfdf5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  promoBadgeText: { fontSize: 11, fontWeight: 'bold', color: '#047857' },
+
+  closeModalBtn: {
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  closeModalBtnText: { fontWeight: 'bold', fontSize: 14, color: '#334155' },
 });
