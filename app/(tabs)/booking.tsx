@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Calendar, CheckCircle2, Car, User, Tag, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react-native';
@@ -252,7 +252,7 @@ export default function BookingScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Top Header Bar */}
         <View style={styles.headerBar}>
-          <Text style={styles.headerLogo}>LOGO</Text>
+          <Image source={require('../../assets/images/logo-wash.png')} style={styles.headerLogoImage} resizeMode="contain" />
           <Text style={styles.headerTitle}>Đăng Ký Đặt Lịch</Text>
         </View>
 
@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  headerLogo: { fontWeight: 'bold', fontSize: 16 },
+  headerLogoImage: { width: 110, height: 36 },
   headerTitle: { fontWeight: '800', fontSize: 16, color: '#0f172a' },
   content: { padding: 20 },
   

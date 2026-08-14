@@ -25,6 +25,21 @@ export interface BookingRequestDTO {
     redemptionId?: number | null;
 }
 
+export interface AppliedRewardDTO {
+    redemptionId: number;
+    rewardId: number;
+    rewardName: string;
+    rewardType: string;
+    description?: string | null;
+    pointsSpent: number;
+    discountValue?: number | null;
+    serviceId?: number | null;
+    serviceName?: string | null;
+    status: string;
+    redeemedAt: string;
+    usedAt?: string | null;
+}
+
 export interface BookingResponseDTO {
     bookingId: number;
     customerId?: number;
@@ -41,7 +56,10 @@ export interface BookingResponseDTO {
     originalPrice?: number;
     finalPrice?: number;
     promotionId?: number | null;
+    promoCode?: string | null;
     redemptionId?: number | null;
+    rewardName?: string | null;
+    appliedReward?: AppliedRewardDTO | null;
     addOns?: BookingAddOnDTO[];
     qrCode?: string;
     status: string;

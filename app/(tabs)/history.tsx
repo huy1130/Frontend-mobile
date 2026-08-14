@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin, QrCode, Tag, PlusCircle, X, ChevronRight } from 'lucide-react-native';
 import QRCodeSVG from 'react-native-qrcode-svg';
@@ -13,7 +13,7 @@ export default function HistoryScreen() {
   const { user, isLoggedIn } = useAuth();
   const [historyData, setHistoryData] = useState<BookingResponseDTO[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
   const [selectedBooking, setSelectedBooking] = useState<BookingResponseDTO | null>(null);
   const [promotionsMap, setPromotionsMap] = useState<Record<number, string>>({});
   const [redemptionsMap, setRedemptionsMap] = useState<Record<number, string>>({});
@@ -41,7 +41,7 @@ export default function HistoryScreen() {
         const list = Array.isArray(res) ? res : (res as any)?.data || [];
         list.forEach((r: any) => map[r.redemptionId] = r.rewardName);
         setRedemptionsMap(map);
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
       setHistoryData([]);
       setRedemptionsMap({});
@@ -51,7 +51,7 @@ export default function HistoryScreen() {
       const map: Record<number, string> = {};
       if (Array.isArray(res)) res.forEach(p => map[p.promotionId] = p.promoName);
       setPromotionsMap(map);
-    }).catch(() => {});
+    }).catch(() => { });
   }, [isLoggedIn, user]);
 
   const filtered = historyData
@@ -69,7 +69,7 @@ export default function HistoryScreen() {
 
         {/* Top Header Bar */}
         <View style={styles.headerBar}>
-          <Text style={styles.headerLogo}>LOGO</Text>
+          <Image source={require('../../assets/images/logo-wash.png')} style={styles.headerLogoImage} resizeMode="contain" />
           <Text style={styles.headerTitle}>Lịch Sử Đặt Lịch</Text>
         </View>
 
@@ -113,8 +113,30 @@ export default function HistoryScreen() {
           ) : filtered.map((item) => (
             <View key={item.bookingId} style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={styles.idBadge}>
-                  <Text style={styles.idText}>Mã Lịch hẹn-{item.bookingId}</Text>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={styles.idBadge}>
+                      <Text style={styles.idText}>Mã Lịch hẹn-{item.bookingId}</Text>
+                    </View>
+                  </View>
+                  {(item.appliedReward || item.redemptionId || item.promotionId || item.promoCode) && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {(item.appliedReward || item.redemptionId) && (
+                        <View style={styles.rewardBadgeCard}>
+                          <Text style={styles.rewardBadgeCardText}>
+                            🎁 {item.appliedReward?.serviceName || item.appliedReward?.rewardName || (item.redemptionId ? redemptionsMap[item.redemptionId] : null) || 'Đổi thưởng'}
+                          </Text>
+                        </View>
+                      )}
+                      {(item.promotionId || item.promoCode) && (
+                        <View style={styles.promoBadgeCard}>
+                          <Text style={styles.promoBadgeCardText}>
+                            🏷️ {item.promoCode || (item.promotionId ? promotionsMap[item.promotionId] : null) || 'Khuyến mãi'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
 
                 {item.status.toLowerCase() === 'completed' ? (
@@ -136,7 +158,7 @@ export default function HistoryScreen() {
 
               <View style={styles.cardBody}>
                 <Text style={styles.serviceName}>{item.serviceName}</Text>
-                
+
                 {item.addOns && item.addOns.length > 0 && (
                   <View style={{ marginBottom: 8 }}>
                     {item.addOns.map(addon => (
@@ -168,8 +190,8 @@ export default function HistoryScreen() {
                   <Text style={styles.footerLabel}>Tổng thanh toán:</Text>
                   <Text style={styles.footerValue}>{(item.finalPrice ?? 0).toLocaleString('vi-VN')}đ</Text>
                 </View>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   style={styles.detailBtn}
                   onPress={() => setSelectedBooking(item)}
                 >
@@ -229,8 +251,8 @@ export default function HistoryScreen() {
                       <Text style={styles.infoLabel}>TRẠNG THÁI</Text>
                       <Text style={[styles.infoValue, {
                         color: ['completed', 'checkedout'].includes(selectedBooking.status.toLowerCase()) ? '#059669'
-                        : ['pending', 'confirmed', 'washing'].includes(selectedBooking.status.toLowerCase()) ? '#0284c7'
-                        : '#e11d48'
+                          : ['pending', 'confirmed', 'washing'].includes(selectedBooking.status.toLowerCase()) ? '#0284c7'
+                            : '#e11d48'
                       }]}>
                         {selectedBooking.status}
                       </Text>
@@ -284,36 +306,42 @@ export default function HistoryScreen() {
                   ))}
                 </View>
 
+                {(selectedBooking.appliedReward?.serviceName || (selectedBooking.redemptionId && redemptionsMap[selectedBooking.redemptionId])) && (
+                  <>
+                    <View style={styles.divider} />
+                    <View style={styles.sectionBox}>
+                      <Text style={styles.infoLabel}>PHẦN THƯỞNG ÁP DỤNG</Text>
+                      <View style={styles.rewardModalTag}>
+                        <Text style={styles.rewardModalTagText}>
+                          🎁 Miễn phí dịch vụ: {selectedBooking.appliedReward?.serviceName || redemptionsMap[selectedBooking.redemptionId!]}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
+
+                {(selectedBooking.promotionId || selectedBooking.promoCode) && (
+                  <>
+                    <View style={styles.divider} />
+                    <View style={styles.sectionBox}>
+                      <Text style={styles.infoLabel}>KHUYẾN MÃI ÁP DỤNG</Text>
+                      <View style={styles.promoModalTag}>
+                        <Text style={styles.promoModalTagText}>
+                          🏷️ {selectedBooking.promoCode || (selectedBooking.promotionId ? promotionsMap[selectedBooking.promotionId] : null) || 'Khuyến mãi'}
+                          {selectedBooking.originalPrice != null && selectedBooking.finalPrice != null && selectedBooking.originalPrice > selectedBooking.finalPrice ? ` (-${(selectedBooking.originalPrice - selectedBooking.finalPrice).toLocaleString('vi-VN')}đ)` : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
+
                 {/* Payment Breakdown */}
                 <View style={styles.divider} />
                 <View style={styles.paymentRow}>
                   <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#475569' }}>Tổng Tiền</Text>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    {selectedBooking.originalPrice != null && selectedBooking.finalPrice != null && selectedBooking.originalPrice > selectedBooking.finalPrice ? (
-                      <>
-                        <Text style={{ fontSize: 12, color: '#94a3b8', textDecorationLine: 'line-through' }}>
-                          {selectedBooking.originalPrice.toLocaleString('vi-VN')}đ
-                        </Text>
-                        <Text style={{ fontSize: 20, fontWeight: '900', color: '#ea580c' }}>
-                          {selectedBooking.finalPrice.toLocaleString('vi-VN')}đ
-                        </Text>
-                        <View style={styles.promoBadge}>
-                          <Tag color="#059669" size={12} />
-                          <Text style={styles.promoBadgeText}>
-                            {selectedBooking.redemptionId && redemptionsMap[selectedBooking.redemptionId]
-                              ? redemptionsMap[selectedBooking.redemptionId]
-                              : selectedBooking.promotionId && promotionsMap[selectedBooking.promotionId]
-                              ? promotionsMap[selectedBooking.promotionId]
-                              : 'Ưu đãi áp dụng'} (-{(selectedBooking.originalPrice - selectedBooking.finalPrice).toLocaleString('vi-VN')}đ)
-                          </Text>
-                        </View>
-                      </>
-                    ) : (
-                      <Text style={{ fontSize: 20, fontWeight: '900', color: '#ea580c' }}>
-                        {(selectedBooking.finalPrice ?? 0).toLocaleString('vi-VN')}đ
-                      </Text>
-                    )}
-                  </View>
+                  <Text style={{ fontSize: 20, fontWeight: '900', color: '#ea580c' }}>
+                    {(selectedBooking.finalPrice ?? 0).toLocaleString('vi-VN')}đ
+                  </Text>
                 </View>
               </ScrollView>
 
@@ -347,7 +375,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  headerLogo: { fontWeight: 'bold', fontSize: 16 },
+  headerLogoImage: { width: 110, height: 36 },
   headerTitle: { fontWeight: '800', fontSize: 16, color: '#0f172a' },
 
   content: { padding: 20 },
@@ -434,7 +462,7 @@ const styles = StyleSheet.create({
   },
   footerLabel: { color: '#94a3b8', fontSize: 12 },
   footerValue: { color: '#ea580c', fontWeight: '800', fontSize: 16 },
-  
+
   detailBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -534,6 +562,61 @@ const styles = StyleSheet.create({
     borderColor: '#a7f3d0',
   },
   promoBadgeText: { fontSize: 11, fontWeight: 'bold', color: '#047857' },
+
+  rewardBadgeCard: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  rewardBadgeCardText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#92400e',
+  },
+  promoBadgeCard: {
+    backgroundColor: '#ffe4e6',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+  },
+  promoBadgeCardText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#be123c',
+  },
+  rewardModalTag: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    alignSelf: 'flex-start',
+  },
+  rewardModalTagText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#92400e',
+  },
+  promoModalTag: {
+    backgroundColor: '#ffe4e6',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+    alignSelf: 'flex-start',
+  },
+  promoModalTagText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#be123c',
+  },
 
   closeModalBtn: {
     backgroundColor: '#f1f5f9',
