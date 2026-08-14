@@ -40,8 +40,9 @@ export default function MyVehiclesScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.headerBar}>
-        {/* Placeholder để giữ cho tiêu đề (Quản Lý Xe) nằm ở giữa */}
-        <View style={{ width: 32 }} />
+        <TouchableOpacity onPress={() => router.push('/account')} style={styles.backBtn}>
+          <ChevronLeft color="#334155" size={24} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Quản Lý Xe</Text>
         <TouchableOpacity onPress={handleAddVehicle} style={styles.addBtn}>
           <Plus color="#f97316" size={24} />

@@ -84,7 +84,9 @@ export default function RewardsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={() => router.push('/account')} style={{ padding: 4 }}>
+          <ChevronLeft color="#0f172a" size={24} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Cửa Hàng Đổi Thưởng</Text>
         <View style={{ width: 24 }} />
       </View>

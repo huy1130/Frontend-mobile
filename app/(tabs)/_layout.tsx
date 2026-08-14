@@ -44,8 +44,7 @@ export default function TabLayout() {
         name="my-vehicles"
         options={{
           title: 'Xe của tôi',
-          href: isLoggedIn ? '/my-vehicles' : null,
-          tabBarIcon: ({ color, size }) => <Car color={color} size={size} />,
+          href: null,
         }}
       />
       
@@ -53,8 +52,7 @@ export default function TabLayout() {
         name="rewards"
         options={{
           title: 'Đổi thưởng',
-          href: isLoggedIn ? '/rewards' : null,
-          tabBarIcon: ({ color, size }) => <Gift color={color} size={size} />,
+          href: null,
         }}
       />
       
