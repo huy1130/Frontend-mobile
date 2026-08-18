@@ -641,6 +641,19 @@ export default function BookingScreen() {
               {/* STEP 3: Promotions & Confirm */}
               {currentStep === 3 && (
                 <View style={styles.stepContent}>
+                  {/* Auto Best Promotion Banner */}
+                  {isAutoPromoMode && autoBestPromo && (
+                    <View style={{ backgroundColor: '#fff7ed', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#ffedd5', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                      <Sparkles color="#ea580c" size={24} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#9a3412' }}>✨ Tự động áp dụng ưu đãi tốt nhất cho bạn</Text>
+                        <Text style={{ fontSize: 12, color: '#c2410c', marginTop: 2 }}>
+                          {autoBestPromo.promoName} {promoDiscountValue > 0 ? `(-${promoDiscountValue.toLocaleString('vi-VN')}đ)` : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
                   <View style={[styles.stepCard, { marginBottom: 16 }]}>
                     <Text style={styles.stepTitle}>Phần Thưởng Của Bạn</Text>
                     {myRedemptions.length === 0 ? (
@@ -688,13 +701,18 @@ export default function BookingScreen() {
                       onPress={() => setSelectedPromotion(null)}
                       style={[
                         styles.promoItem,
-                        selectedPromotion === null ? styles.itemSelected : styles.itemDefault
+                        isAutoPromoMode ? styles.itemSelected : styles.itemDefault
                       ]}
                     >
                       <View style={styles.promoItemLeft}>
-                        <Tag color={selectedPromotion === null ? '#f97316' : '#64748b'} size={20} />
+                        <Tag color={isAutoPromoMode ? '#f97316' : '#64748b'} size={20} />
                         <View style={{ flex: 1, marginLeft: 12 }}>
-                          <Text style={styles.promoName}>Không sử dụng khuyến mãi</Text>
+                          <Text style={styles.promoName}>
+                            Tự động chọn khuyến mãi tốt nhất {autoBestPromo ? `(${autoBestPromo.promoName})` : ''}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: isAutoPromoMode ? '#ea580c' : '#64748b', marginTop: 2 }}>
+                            {isAutoPromoMode ? '✓ Đang bật chế độ tự chọn ưu đãi cao nhất' : 'Nhấn để bật lại tự động chọn ưu đãi'}
+                          </Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -702,34 +720,47 @@ export default function BookingScreen() {
                     {promotions.length === 0 ? (
                       <Text style={{ color: '#64748b', marginTop: 12, fontStyle: 'italic' }}>Bạn chưa có khuyến mãi nào hợp lệ lúc này.</Text>
                     ) : (
-                      promotions.map((promo) => (
-                        <TouchableOpacity
-                          key={promo.promotionId}
-                          onPress={() => {
-                            if (selectedPromotion === promo.promotionId) {
-                              setSelectedPromotion(null);
-                            } else {
-                              if (selectedRedemption) {
-                                Alert.alert('Thông báo', 'Chỉ được chọn khuyến mãi hoặc phần thưởng cho lịch hẹn của bạn.');
-                                setSelectedRedemption(null);
+                      promotions.map((promo) => {
+                        const isBest = autoBestPromo?.promotionId === promo.promotionId;
+                        const isSelected = selectedPromotion === promo.promotionId;
+                        const isActive = isSelected || (isAutoPromoMode && isBest);
+
+                        return (
+                          <TouchableOpacity
+                            key={promo.promotionId}
+                            onPress={() => {
+                              if (selectedPromotion === promo.promotionId) {
+                                setSelectedPromotion(null);
+                              } else {
+                                if (selectedRedemption) {
+                                  Alert.alert('Thông báo', 'Chỉ được chọn khuyến mãi hoặc phần thưởng cho lịch hẹn của bạn.');
+                                  setSelectedRedemption(null);
+                                }
+                                setSelectedPromotion(promo.promotionId);
                               }
-                              setSelectedPromotion(promo.promotionId);
-                            }
-                          }}
-                          style={[
-                            styles.promoItem,
-                            selectedPromotion === promo.promotionId ? styles.itemSelected : styles.itemDefault
-                          ]}
-                        >
-                          <View style={styles.promoItemLeft}>
-                            <Tag color={selectedPromotion === promo.promotionId ? '#f97316' : '#64748b'} size={20} />
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text style={styles.promoName}>{promo.promoName}</Text>
-                              <Text style={styles.promoDesc} numberOfLines={2}>{promo.description}</Text>
+                            }}
+                            style={[
+                              styles.promoItem,
+                              isActive ? styles.itemSelected : styles.itemDefault
+                            ]}
+                          >
+                            <View style={styles.promoItemLeft}>
+                              <Tag color={isActive ? '#f97316' : '#64748b'} size={20} />
+                              <View style={{ flex: 1, marginLeft: 12 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text style={styles.promoName}>{promo.promoName}</Text>
+                                  {isBest && (
+                                    <View style={{ backgroundColor: '#fff7ed', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#ffedd5' }}>
+                                      <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#ea580c' }}>🌟 Ưu đãi tốt nhất</Text>
+                                    </View>
+                                  )}
+                                </View>
+                                <Text style={styles.promoDesc} numberOfLines={2}>{promo.description}</Text>
+                              </View>
                             </View>
-                          </View>
-                        </TouchableOpacity>
-                      ))
+                          </TouchableOpacity>
+                        );
+                      })
                     )}
                   </View>
 
@@ -740,12 +771,9 @@ export default function BookingScreen() {
                       <Text style={styles.summaryValue}>{services.find(s => s.serviceId === selectedService)?.serviceName}</Text>
                     </View>
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Giá dịch vụ:</Text>
+                      <Text style={styles.summaryLabel}>Giá dịch vụ gốc:</Text>
                       <Text style={styles.summaryValue}>
-                        {(() => {
-                          const s = services.find(svc => svc.serviceId === selectedService);
-                          return s ? `${s.price.toLocaleString('vi-VN')}đ` : '';
-                        })()}
+                        {subtotalPrice.toLocaleString('vi-VN')}đ
                       </Text>
                     </View>
                     <View style={styles.summaryRow}>
@@ -762,71 +790,34 @@ export default function BookingScreen() {
                         })()}
                       </Text>
                     </View>
-                    {selectedPromotion && (
+
+                    {activePromo && (
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Khuyến mãi:</Text>
-                        <Text style={styles.summaryPromoValue}>{promotions.find(p => p.promotionId === selectedPromotion)?.promoName}</Text>
+                        <Text style={styles.summaryLabel}>Khuyến mãi áp dụng:</Text>
+                        <Text style={styles.summaryPromoValue}>
+                          {activePromo.promoName} {promoDiscountValue > 0 ? `(-${promoDiscountValue.toLocaleString('vi-VN')}đ)` : ''}
+                        </Text>
                       </View>
                     )}
-                    {selectedRedemption && (
+
+                    {selectedRedemptionObj && (
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Phần thưởng:</Text>
-                        <Text style={styles.summaryPromoValue}>{myRedemptions.find(r => r.redemptionId === selectedRedemption)?.rewardName}</Text>
+                        <Text style={styles.summaryLabel}>Phần thưởng áp dụng:</Text>
+                        <Text style={styles.summaryPromoValue}>
+                          {selectedRedemptionObj.rewardName} {redemptionDiscountValue > 0 ? `(-${redemptionDiscountValue.toLocaleString('vi-VN')}đ)` : ''}
+                        </Text>
                       </View>
                     )}
+
                     <View style={[styles.summaryRow, { borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 12, marginTop: 4, alignItems: 'flex-end' }]}>
-                      <Text style={[styles.summaryLabel, { fontWeight: 'bold' }]}>Tổng thanh toán:</Text>
+                      <View>
+                        <Text style={[styles.summaryLabel, { fontWeight: 'bold' }]}>Tổng thanh toán:</Text>
+                        <Text style={{ fontSize: 11, color: '#64748b' }}>
+                          Tiền cọc cần thanh toán: <Text style={{ fontWeight: 'bold', color: '#e11d48' }}>{estimatedDepositAmount.toLocaleString('vi-VN')}đ</Text>
+                        </Text>
+                      </View>
                       <Text style={{ fontSize: 18, fontWeight: '900', color: '#ea580c' }}>
-                        {(() => {
-                           const svc = services.find(s => s.serviceId === selectedService);
-                           if (!svc) return '0đ';
-                           let total = svc.price;
-                           
-                           if (selectedPromotion) {
-                             const promo = promotions.find(p => p.promotionId === selectedPromotion);
-                             if (promo) {
-                               const type = (promo.promoType || '').toLowerCase();
-                               if (type === 'freewash') {
-                                 if (!promo.serviceId || promo.serviceId === selectedService) {
-                                   total = 0;
-                                 }
-                               } else if (type === 'addon') {
-                                 if (promo.serviceId === selectedService) {
-                                   total = 0;
-                                 }
-                               } else if (type === 'discount') {
-                                 if (!promo.serviceId || promo.serviceId === selectedService) {
-                                   if (promo.discountType === 'Fixed' && promo.discountValue) total -= promo.discountValue;
-                                   else if (promo.discountType === 'Percent' && promo.discountValue) {
-                                     let discount = total * promo.discountValue / 100;
-                                     if (promo.maxDiscount && discount > promo.maxDiscount) discount = promo.maxDiscount;
-                                     total -= discount;
-                                   }
-                                 }
-                               }
-                             }
-                           }
-                           
-                           if (selectedRedemption) {
-                             const redemption = myRedemptions.find(r => r.redemptionId === selectedRedemption);
-                             if (redemption) {
-                               const type = (redemption.rewardType || redemption.reward?.rewardType || '').toLowerCase();
-                               const rServiceId = redemption.serviceId || redemption.reward?.serviceId;
-                               if (type === 'freewash' || type === 'addon') {
-                                 if (!rServiceId || rServiceId === selectedService) {
-                                   total = 0;
-                                 }
-                               } else if (type === 'discount') {
-                                 const val = redemption.discountValue || redemption.reward?.discountValue;
-                                 if (val && (!rServiceId || rServiceId === selectedService)) {
-                                   total -= val;
-                                 }
-                               }
-                             }
-                           }
-                           
-                           return Math.max(0, total).toLocaleString('vi-VN') + 'đ';
-                        })()}
+                        {finalTotalAmount.toLocaleString('vi-VN')}đ
                       </Text>
                     </View>
                   </View>

@@ -145,6 +145,24 @@ export default function HistoryScreen() {
     }
   };
 
+  const [loadingDetailBookingId, setLoadingDetailBookingId] = useState<number | null>(null);
+
+  const handleViewDetail = async (item: BookingResponseDTO) => {
+    setLoadingDetailBookingId(item.bookingId);
+    try {
+      const res = await bookingService.getBookingDetail(item.bookingId);
+      if (res && res.data) {
+        setSelectedBooking(res.data);
+      } else {
+        setSelectedBooking(item);
+      }
+    } catch {
+      setSelectedBooking(item);
+    } finally {
+      setLoadingDetailBookingId(null);
+    }
+  };
+
   const handleConfirmCancel = async (bookingId: number) => {
     if (!bookingId) return;
     setIsCancellingDeposit(true);
@@ -275,6 +293,11 @@ export default function HistoryScreen() {
                       <XCircle color="#e11d48" size={12} />
                       <Text style={[styles.statusText, { color: '#be123c' }]}>Đã Hủy</Text>
                     </View>
+                  ) : st === 'washing' || st === 'inprogress' || st === 'in-progress' ? (
+                    <View style={[styles.statusBadge, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
+                      <Clock color="#ea580c" size={12} />
+                      <Text style={[styles.statusText, { color: '#c2410c' }]}>Đang Rửa Xe</Text>
+                    </View>
                   ) : st === 'deposited' ? (
                     <View style={[styles.statusBadge, { backgroundColor: '#ccfbf1', borderColor: '#99f6e4' }]}>
                       <CreditCard color="#0d9488" size={12} />
@@ -285,10 +308,19 @@ export default function HistoryScreen() {
                       <CheckCircle2 color="#4f46e5" size={12} />
                       <Text style={[styles.statusText, { color: '#4338ca' }]}>Đã Xác Nhận</Text>
                     </View>
-                  ) : (
+                  ) : st === 'noshow' ? (
+                    <View style={[styles.statusBadge, { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0' }]}>
+                      <XCircle color="#64748b" size={12} />
+                      <Text style={[styles.statusText, { color: '#475569' }]}>Khách Không Đến</Text>
+                    </View>
+                  ) : st === 'pending' ? (
                     <View style={[styles.statusBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
                       <Clock color="#d97706" size={12} />
                       <Text style={[styles.statusText, { color: '#b45309' }]}>Chờ Thanh Toán Cọc</Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#bae6fd' }]}>
+                      <Text style={[styles.statusText, { color: '#0369a1' }]}>{item.status}</Text>
                     </View>
                   )}
                 </View>
@@ -323,12 +355,17 @@ export default function HistoryScreen() {
                 </View>
 
                 <View style={styles.cardFooter}>
-                  <View>
-                    <Text style={styles.footerLabel}>{st === 'deposited' ? 'Còn lại trả tại tiệm:' : 'Tổng thanh toán:'}</Text>
-                    <Text style={styles.footerValue}>
-                      {(st === 'deposited' ? remainingAmt : (item.finalPrice ?? 0)).toLocaleString('vi-VN')}đ
-                    </Text>
-                  </View>
+                  {(() => {
+                    const isDepositedState = ['deposited', 'confirmed', 'washing', 'inprogress', 'in-progress'].includes(st);
+                    return (
+                      <View>
+                        <Text style={styles.footerLabel}>{isDepositedState ? 'Còn lại trả tại tiệm:' : 'Tổng thanh toán:'}</Text>
+                        <Text style={styles.footerValue}>
+                          {(isDepositedState ? remainingAmt : (item.finalPrice ?? 0)).toLocaleString('vi-VN')}đ
+                        </Text>
+                      </View>
+                    );
+                  })()}
 
                   <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                     {st === 'pending' && (
@@ -351,10 +388,17 @@ export default function HistoryScreen() {
 
                     <TouchableOpacity
                       style={styles.detailBtn}
-                      onPress={() => setSelectedBooking(item)}
+                      onPress={() => handleViewDetail(item)}
+                      disabled={loadingDetailBookingId === item.bookingId}
                     >
-                      <Text style={styles.detailBtnText}>Chi Tiết</Text>
-                      <ChevronRight color="#ea580c" size={14} />
+                      {loadingDetailBookingId === item.bookingId ? (
+                        <ActivityIndicator size="small" color="#ea580c" />
+                      ) : (
+                        <>
+                          <Text style={styles.detailBtnText}>Chi Tiết</Text>
+                          <ChevronRight color="#ea580c" size={14} />
+                        </>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -409,13 +453,37 @@ export default function HistoryScreen() {
                     </View>
                     <View style={styles.infoCol}>
                       <Text style={styles.infoLabel}>TRẠNG THÁI</Text>
-                      <Text style={[styles.infoValue, {
-                        color: ['completed', 'checkedout'].includes(selectedBooking.status.toLowerCase()) ? '#059669'
-                          : ['pending', 'confirmed', 'washing'].includes(selectedBooking.status.toLowerCase()) ? '#0284c7'
-                            : '#e11d48'
-                      }]}>
-                        {selectedBooking.status}
-                      </Text>
+                      {(() => {
+                        const rawStatus = (selectedBooking as any).bookingStatus || selectedBooking.status || '';
+                        const detailSt = rawStatus.toLowerCase();
+                        let label = rawStatus;
+                        let color = '#334155';
+                        let bgColor = '#f1f5f9';
+
+                        if (detailSt === 'completed' || detailSt === 'checkedout') {
+                          label = 'Đã Hoàn Thành'; color = '#047857'; bgColor = '#ecfdf5';
+                        } else if (detailSt === 'cancelled') {
+                          label = 'Đã Hủy'; color = '#be123c'; bgColor = '#fff1f2';
+                        } else if (detailSt === 'washing' || detailSt === 'inprogress' || detailSt === 'in-progress') {
+                          label = 'Đang Rửa Xe'; color = '#c2410c'; bgColor = '#fff7ed';
+                        } else if (detailSt === 'deposited') {
+                          label = 'Đã Đặt Cọc'; color = '#0f766e'; bgColor = '#ccfbf1';
+                        } else if (detailSt === 'confirmed') {
+                          label = 'Đã Xác Nhận'; color = '#4338ca'; bgColor = '#e0e7ff';
+                        } else if (detailSt === 'noshow') {
+                          label = 'Khách Không Đến'; color = '#475569'; bgColor = '#f1f5f9';
+                        } else if (detailSt === 'pending') {
+                          label = 'Chờ Thanh Toán Cọc'; color = '#b45309'; bgColor = '#fef3c7';
+                        }
+
+                        return (
+                          <View style={{ backgroundColor: bgColor, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start', marginTop: 2 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '800', color: color }}>
+                              {label}
+                            </Text>
+                          </View>
+                        );
+                      })()}
                     </View>
                   </View>
 
@@ -497,11 +565,41 @@ export default function HistoryScreen() {
 
                 {/* Payment Breakdown */}
                 <View style={styles.divider} />
-                <View style={styles.paymentRow}>
-                  <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#475569' }}>Tổng Tiền</Text>
-                  <Text style={{ fontSize: 20, fontWeight: '900', color: '#ea580c' }}>
-                    {(selectedBooking.finalPrice ?? 0).toLocaleString('vi-VN')}đ
-                  </Text>
+                <View style={{ backgroundColor: '#f8fafc', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, color: '#64748b' }}>Tổng Chi Phí Dịch Vụ:</Text>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#0f172a' }}>
+                      {(selectedBooking.finalPrice ?? 0).toLocaleString('vi-VN')}đ
+                    </Text>
+                  </View>
+
+                  {(() => {
+                    const st = selectedBooking.status?.toLowerCase() || '';
+                    const isBike = (selectedBooking.vehicleType || '').toLowerCase().includes('bike') || (selectedBooking.vehicleType || '').toLowerCase().includes('xe máy');
+                    const bikeRate = systemParams?.bikeDepositAmount ?? 20000;
+                    const carPercent = systemParams?.carDepositPercentage ?? 20;
+                    const depositAmtEst = selectedBooking.depositAmount ?? (isBike ? Math.min(bikeRate, selectedBooking.finalPrice ?? 0) : Math.round(((selectedBooking.finalPrice ?? 0) * carPercent) / 100));
+                    const isDepositedState = ['deposited', 'confirmed', 'washing', 'completed', 'checkedout'].includes(st);
+                    const remainingAmt = Math.max(0, (selectedBooking.finalPrice ?? 0) - (isDepositedState ? depositAmtEst : 0));
+
+                    return (
+                      <>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ fontSize: 13, color: '#64748b' }}>Đã Đặt Cọc:</Text>
+                          <Text style={{ fontSize: 14, fontWeight: 'bold', color: isDepositedState ? '#0d9488' : '#64748b' }}>
+                            {isDepositedState ? `${depositAmtEst.toLocaleString('vi-VN')}đ` : '0đ (Chưa cọc)'}
+                          </Text>
+                        </View>
+
+                        <View style={{ borderTopWidth: 1, borderTopColor: '#cbd5e1', paddingTop: 8, marginTop: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#0f172a' }}>Còn Lại:</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '900', color: '#ea580c' }}>
+                            {remainingAmt.toLocaleString('vi-VN')}đ
+                          </Text>
+                        </View>
+                      </>
+                    );
+                  })()}
                 </View>
               </ScrollView>
 
