@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, CheckCircle2, Car, User, Tag, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react-native';
+import { Calendar, CheckCircle2, Car, User, Tag, ChevronLeft, ChevronRight, Sparkles, Info, XCircle, CreditCard, AlertTriangle, Copy } from 'lucide-react-native';
+import QRCodeSVG from 'react-native-qrcode-svg';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { serviceService, ServiceDto } from '../../services/serviceService';
@@ -11,6 +12,7 @@ import { bookingService, BookingResponseDTO } from '../../services/bookingServic
 import { promotionService, PromotionDTO } from '../../services/promotionService';
 import { timeSlotService, AvailableSlotDto } from '../../services/timeSlotService';
 import { loyaltyService } from '../../services/loyaltyService';
+import { systemParameterService, SystemParameterDto } from '../../services/systemParameterService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const getCustomerIdFromToken = async (): Promise<number | undefined> => {
@@ -59,6 +61,24 @@ export default function BookingScreen() {
   const [bookingRef, setBookingRef] = useState<number | null>(null);
   const [createdBooking, setCreatedBooking] = useState<BookingResponseDTO | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [viewingService, setViewingService] = useState<ServiceDto | null>(null);
+
+  // Deposit QR Modal & Cancellation State
+  const [systemParams, setSystemParams] = useState<SystemParameterDto | null>(null);
+  const [depositModalData, setDepositModalData] = useState<{
+    bookingId: number;
+    amount: number;
+    accountNumber: string;
+    accountName: string;
+    bin: string;
+    description: string;
+    qrCode?: string;
+    qrImageUrl?: string;
+    checkoutUrl?: string;
+  } | null>(null);
+  const [isCheckingDeposit, setIsCheckingDeposit] = useState<boolean>(false);
+  const [isCancellingDeposit, setIsCancellingDeposit] = useState<boolean>(false);
+  const [confirmCancelBookingId, setConfirmCancelBookingId] = useState<number | null>(null);
 
   // Advanced booking & Timeslots
   const [maxDays, setMaxDays] = useState(7);
@@ -82,6 +102,7 @@ export default function BookingScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      systemParameterService.getSystemParameter().then(setSystemParams).catch(() => null);
       serviceService.getActiveServices().then(setServices).catch(console.error);
       if (isLoggedIn) {
         customerService.getMyVehicles().then(res => {
@@ -141,6 +162,127 @@ export default function BookingScreen() {
       .finally(() => setIsSlotsLoading(false));
   }, [selectedDate]);
 
+  // Polling for deposit payment status
+  useEffect(() => {
+    let interval: any;
+    if (depositModalData?.bookingId) {
+      interval = setInterval(async () => {
+        try {
+          const detailRes = await bookingService.getBookingDetail(depositModalData.bookingId);
+          const currentStatus = detailRes?.data?.status || detailRes?.data?.bookingStatus;
+          if (currentStatus === 'Deposited') {
+            setDepositModalData(null);
+            setBookedSuccess(true);
+            Alert.alert('Thành công 🎉', 'Thanh toán cọc thành công! Lịch hẹn của bạn đã được xác nhận!');
+          }
+        } catch (e) {
+          // silent catch
+        }
+      }, 3000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [depositModalData?.bookingId]);
+
+  const handleCheckDepositStatus = async () => {
+    if (!depositModalData?.bookingId) return;
+    setIsCheckingDeposit(true);
+    try {
+      const detailRes = await bookingService.getBookingDetail(depositModalData.bookingId);
+      const currentStatus = detailRes?.data?.status || detailRes?.data?.bookingStatus;
+      if (currentStatus === 'Deposited') {
+        setDepositModalData(null);
+        setBookedSuccess(true);
+        Alert.alert('Thành công 🎉', 'Đã xác nhận thanh toán đặt cọc thành công!');
+      } else {
+        Alert.alert('Thông báo', 'Hệ thống chưa nhận được giao dịch. Vui lòng hoàn tất chuyển khoản và bấm kiểm tra lại.');
+      }
+    } catch (err) {
+      Alert.alert('Lỗi', 'Không thể kiểm tra trạng thái thanh toán.');
+    } finally {
+      setIsCheckingDeposit(false);
+    }
+  };
+
+  const handleConfirmCancel = async (bookingId: number) => {
+    if (!bookingId) return;
+    setIsCancellingDeposit(true);
+    try {
+      await bookingService.cancelBooking(bookingId);
+      Alert.alert('Thông báo', `Đơn đặt lịch #${bookingId} đã được chuyển sang trạng thái Đã Hủy.`);
+      setConfirmCancelBookingId(null);
+      setDepositModalData(null);
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể hủy đơn đặt lịch. Vui lòng thử lại.');
+    } finally {
+      setIsCancellingDeposit(false);
+    }
+  };
+
+  // Calculation for Auto Best Promotion
+  const selectedSvcObj = services.find(s => s.serviceId === selectedService);
+  const subtotalPrice = selectedSvcObj ? selectedSvcObj.price : 0;
+
+  const calcPromoDiscount = useCallback((promo: PromotionDTO) => {
+    const isApplicable = !promo.serviceId || promo.serviceId === selectedService;
+    if (!isApplicable) return 0;
+    let val = 0;
+    const type = (promo.promoType || '').toLowerCase();
+    if (type === 'discount') {
+      if (promo.discountType === 'Fixed' && promo.discountValue) {
+        val = promo.discountValue;
+      } else if (promo.discountType === 'Percent' && promo.discountValue) {
+        val = (subtotalPrice * promo.discountValue) / 100;
+        if (promo.maxDiscount && val > promo.maxDiscount) {
+          val = promo.maxDiscount;
+        }
+      }
+    } else if ((type === 'freewash' || type === 'addon') && promo.serviceId === selectedService) {
+      val = subtotalPrice;
+    }
+    return val;
+  }, [selectedService, subtotalPrice]);
+
+  const autoBestPromo = useMemo(() => {
+    let best: PromotionDTO | null = null;
+    let maxVal = -1;
+    for (const p of promotions) {
+      const isApplicable = !p.serviceId || p.serviceId === selectedService;
+      if (isApplicable) {
+        const val = calcPromoDiscount(p);
+        if (val > maxVal) {
+          maxVal = val;
+          best = p;
+        }
+      }
+    }
+    return best;
+  }, [promotions, selectedService, calcPromoDiscount]);
+
+  const isAutoPromoMode = selectedPromotion === null && selectedRedemption === null;
+  const activePromo = isAutoPromoMode ? autoBestPromo : promotions.find(p => p.promotionId === selectedPromotion);
+  const promoDiscountValue = activePromo ? calcPromoDiscount(activePromo) : 0;
+
+  const selectedRedemptionObj = myRedemptions.find(r => r.redemptionId === selectedRedemption);
+  let redemptionDiscountValue = 0;
+  if (selectedRedemptionObj) {
+    const rType = (selectedRedemptionObj.rewardType || '').toLowerCase();
+    if (rType === 'discount' && selectedRedemptionObj.discountValue) {
+      redemptionDiscountValue = selectedRedemptionObj.discountValue;
+    } else if ((rType === 'freewash' || rType === 'addon') && selectedRedemptionObj.serviceId === selectedService) {
+      redemptionDiscountValue = subtotalPrice;
+    }
+  }
+
+  const finalTotalAmount = Math.max(0, subtotalPrice - promoDiscountValue - redemptionDiscountValue);
+
+  const selectedVehObj = vehicles.find(v => v.vehicleId === selectedVehicle);
+  const isBike = selectedVehObj ? (selectedVehObj.vehicleType || '').toLowerCase().includes('bike') || (selectedVehObj.vehicleType || '').toLowerCase().includes('xe máy') : false;
+  const bikeRate = systemParams?.bikeDepositAmount ?? 20000;
+  const carPercent = systemParams?.carDepositPercentage ?? 20;
+  const estimatedDepositAmount = finalTotalAmount === 0 ? 0 : Math.max(0, isBike ? Math.min(bikeRate, finalTotalAmount) : Math.round((finalTotalAmount * carPercent) / 100));
+
   const handleNextStep = () => {
     if (currentStep === 1) {
       if (!isLoggedIn) {
@@ -187,6 +329,8 @@ export default function BookingScreen() {
         serviceId: selectedService,
         slotId: selectedTimeSlot,
         bookingDate: selectedDate,
+        promotionId: isAutoPromoMode ? (autoBestPromo?.promotionId || null) : selectedPromotion,
+        redemptionId: selectedRedemption
       };
       
       if (isLoggedIn) {
@@ -195,18 +339,39 @@ export default function BookingScreen() {
           payload.customerId = customerId;
         }
       }
-      
-      if (selectedPromotion) {
-        payload.promotionId = selectedPromotion;
-      }
-      if (selectedRedemption) {
-        payload.redemptionId = selectedRedemption;
-      }
 
       const bookingResponse = await bookingService.createBooking(payload);
       setBookingRef(bookingResponse.bookingId);
       setCreatedBooking(bookingResponse);
-      setBookedSuccess(true);
+      
+      // Attempt Deposit Payment
+      try {
+        const payRes = await bookingService.createDepositPayment(bookingResponse.bookingId);
+        if (payRes) {
+          const depositAmt = payRes.amount ?? payRes.Amount ?? 0;
+          const isPaid = payRes.status === 'PAID' || payRes.Status === 'PAID';
+          if (depositAmt <= 0 || isPaid) {
+            setBookedSuccess(true);
+          } else {
+            setDepositModalData({
+              bookingId: bookingResponse.bookingId,
+              amount: depositAmt,
+              accountNumber: payRes.accountNumber || payRes.AccountNumber || '',
+              accountName: payRes.accountName || payRes.AccountName || '',
+              bin: payRes.bin || payRes.Bin || '',
+              description: payRes.description || payRes.Description || `Deposit for booking ${bookingResponse.bookingId}`,
+              qrCode: payRes.qrCode || payRes.QrCode,
+              qrImageUrl: payRes.qrImageUrl || payRes.QrImageUrl,
+              checkoutUrl: payRes.checkoutUrl || payRes.CheckoutUrl
+            });
+          }
+        } else {
+          setBookedSuccess(true);
+        }
+      } catch (depErr) {
+        setBookedSuccess(true);
+      }
+
       setCurrentStep(1); // Reset for next booking
       setSelectedPromotion(null);
       setSelectedRedemption(null);
@@ -695,6 +860,185 @@ export default function BookingScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Service Detail Modal */}
+      {viewingService && (
+        <Modal
+          visible={!!viewingService}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setViewingService(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContentSmall}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Chi Tiết Dịch Vụ</Text>
+                <TouchableOpacity onPress={() => setViewingService(null)}>
+                  <XCircle color="#94a3b8" size={24} />
+                </TouchableOpacity>
+              </View>
+              <View style={{ padding: 20 }}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#0f172a', marginBottom: 8 }}>{viewingService.serviceName}</Text>
+                <Text style={{ fontSize: 13, color: '#475569', lineHeight: 20, marginBottom: 16 }}>{viewingService.description || 'Không có mô tả chi tiết cho dịch vụ này.'}</Text>
+                <View style={{ backgroundColor: '#fff7ed', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#ffedd5', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontWeight: 'bold', color: '#9a3412', fontSize: 13 }}>Giá Dịch Vụ:</Text>
+                  <Text style={{ fontWeight: '900', color: '#ea580c', fontSize: 18 }}>{viewingService.price.toLocaleString('vi-VN')}đ</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setViewingService(null)} style={{ margin: 20, marginTop: 0, paddingVertical: 12, backgroundColor: '#f1f5f9', borderRadius: 12, alignItems: 'center' }}>
+                <Text style={{ fontWeight: 'bold', color: '#334155' }}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* PayOS VietQR Deposit Payment Modal */}
+      {depositModalData && (
+        <Modal
+          visible={!!depositModalData}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setDepositModalData(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 20 }}>
+              <View style={[styles.modalContentSmall, { padding: 20 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ padding: 8, backgroundColor: '#ea580c', borderRadius: 12 }}>
+                      <CreditCard color="white" size={20} />
+                    </View>
+                    <View>
+                      <Text style={{ fontWeight: '800', fontSize: 16, color: '#0f172a' }}>Thanh Toán Tiền Cọc</Text>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Mã lịch hẹn #{depositModalData.bookingId}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={() => setDepositModalData(null)}>
+                    <XCircle color="#94a3b8" size={22} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* QR Display */}
+                <View style={{ alignItems: 'center', marginVertical: 12 }}>
+                  <View style={{ padding: 12, backgroundColor: '#fff', borderRadius: 20, borderWidth: 2, borderColor: '#ffedd5', shadowColor: '#ea580c', shadowOpacity: 0.1, shadowRadius: 10, elevation: 4 }}>
+                    {depositModalData.qrImageUrl ? (
+                      <Image source={{ uri: depositModalData.qrImageUrl }} style={{ width: 200, height: 200 }} resizeMode="contain" />
+                    ) : (
+                      <QRCodeSVG value={depositModalData.qrCode || depositModalData.checkoutUrl || ''} size={190} />
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>Quét mã bằng App Ngân Hàng để chuyển khoản cọc</Text>
+                </View>
+
+                {/* Info Card */}
+                <View style={{ backgroundColor: '#f8fafc', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0', gap: 10, marginVertical: 12 }}>
+                  {depositModalData.accountName && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Chủ tài khoản:</Text>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#0f172a' }}>{depositModalData.accountName}</Text>
+                    </View>
+                  )}
+                  {depositModalData.accountNumber && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Số tài khoản:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#ea580c' }}>{depositModalData.accountNumber}</Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 12, color: '#64748b' }}>Số tiền cọc:</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: '#e11d48' }}>{depositModalData.amount.toLocaleString('vi-VN')}đ</Text>
+                  </View>
+                  {depositModalData.description && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Nội dung CK:</Text>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#b45309', backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>{depositModalData.description}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Action Buttons */}
+                <View style={{ gap: 10, marginTop: 4 }}>
+                  <TouchableOpacity
+                    onPress={handleCheckDepositStatus}
+                    disabled={isCheckingDeposit}
+                    style={{ backgroundColor: '#f97316', paddingVertical: 14, borderRadius: 14, alignItems: 'center', opacity: isCheckingDeposit ? 0.7 : 1 }}
+                  >
+                    {isCheckingDeposit ? (
+                      <ActivityIndicator color="white" size="small" />
+                    ) : (
+                      <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>Tôi Đã Chuyển Khoản - Kiểm Tra Ngay</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setDepositModalData(null)}
+                    style={{ backgroundColor: '#f1f5f9', paddingVertical: 12, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1' }}
+                  >
+                    <Text style={{ color: '#334155', fontWeight: 'bold', fontSize: 13 }}>Đóng (Thanh Toán Sau)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setConfirmCancelBookingId(depositModalData.bookingId)}
+                    disabled={isCancellingDeposit}
+                    style={{ backgroundColor: '#fff1f2', paddingVertical: 12, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#fecdd3' }}
+                  >
+                    <Text style={{ color: '#e11d48', fontWeight: 'bold', fontSize: 13 }}>Hủy Đơn Lịch Hẹn Này</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </Modal>
+      )}
+
+      {/* Confirm Cancel Modal */}
+      {confirmCancelBookingId && (
+        <Modal
+          visible={!!confirmCancelBookingId}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setConfirmCancelBookingId(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContentSmall, { padding: 24, alignItems: 'center' }]}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fecdd3', marginBottom: 16 }}>
+                <AlertTriangle color="#e11d48" size={28} />
+              </View>
+
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', marginBottom: 8, textAlign: 'center' }}>
+                Xác Nhận Hủy Lịch Hẹn
+              </Text>
+              <Text style={{ fontSize: 13, color: '#475569', textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+                Bạn có chắc chắn muốn hủy đơn đặt lịch <Text style={{ fontWeight: 'bold', color: '#ea580c' }}>#{confirmCancelBookingId}</Text> này không?
+                {'\n'}<Text style={{ color: '#e11d48', fontWeight: '600' }}>⚠️ Thao tác này sẽ hủy suất giữ chỗ và không thể hoàn tác.</Text>
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                <TouchableOpacity
+                  onPress={() => setConfirmCancelBookingId(null)}
+                  disabled={isCancellingDeposit}
+                  style={{ flex: 1, paddingVertical: 12, backgroundColor: '#f1f5f9', borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1' }}
+                >
+                  <Text style={{ fontWeight: 'bold', color: '#475569', fontSize: 14 }}>Quay Lại</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => handleConfirmCancel(confirmCancelBookingId)}
+                  disabled={isCancellingDeposit}
+                  style={{ flex: 1, paddingVertical: 12, backgroundColor: '#e11d48', borderRadius: 12, alignItems: 'center' }}
+                >
+                  {isCancellingDeposit ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <Text style={{ fontWeight: 'bold', color: 'white', fontSize: 14 }}>Xác Nhận Hủy</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -967,4 +1311,39 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 13, color: '#64748b' },
   summaryValue: { fontSize: 13, fontWeight: 'bold', color: '#0f172a' },
   summaryPromoValue: { fontSize: 13, fontWeight: 'bold', color: '#ea580c' },
+  
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20
+  },
+  modalContentSmall: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    backgroundColor: '#f8fafc'
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a'
+  }
 });

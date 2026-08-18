@@ -55,6 +55,13 @@ export interface BookingResponseDTO {
     bookingDate: string;
     originalPrice?: number;
     finalPrice?: number;
+    depositAmount?: number | null;
+    accountNumber?: string;
+    accountName?: string;
+    bin?: string;
+    description?: string;
+    qrImageUrl?: string;
+    checkoutUrl?: string;
     promotionId?: number | null;
     promoCode?: string | null;
     redemptionId?: number | null;
@@ -73,5 +80,17 @@ export const bookingService = {
   
   getBookingHistory: (phone: string): Promise<{ success: boolean; data: BookingResponseDTO[] }> => {
     return axiosClient.get(`/Booking/search?phone=${phone}`);
+  },
+
+  cancelBooking: (bookingId: number): Promise<any> => {
+    return axiosClient.put(`/Booking/${bookingId}/cancel`);
+  },
+
+  getBookingDetail: (bookingId: number): Promise<{ success: boolean; data: any }> => {
+    return axiosClient.get(`/Booking/${bookingId}`);
+  },
+
+  createDepositPayment: (bookingId: number): Promise<any> => {
+    return axiosClient.post(`/payments/deposit-qr/${bookingId}`);
   }
 };

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin, QrCode, Tag, PlusCircle, X, ChevronRight } from 'lucide-react-native';
+import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin, QrCode, Tag, PlusCircle, X, ChevronRight, CreditCard, AlertTriangle, Clock } from 'lucide-react-native';
 import QRCodeSVG from 'react-native-qrcode-svg';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService, BookingResponseDTO } from '../../services/bookingService';
 import { promotionService } from '../../services/promotionService';
 import { loyaltyService } from '../../services/loyaltyService';
+import { systemParameterService, SystemParameterDto } from '../../services/systemParameterService';
 
 export default function HistoryScreen() {
-  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'cancelled'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const { user, isLoggedIn } = useAuth();
   const [historyData, setHistoryData] = useState<BookingResponseDTO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -17,6 +18,23 @@ export default function HistoryScreen() {
   const [selectedBooking, setSelectedBooking] = useState<BookingResponseDTO | null>(null);
   const [promotionsMap, setPromotionsMap] = useState<Record<number, string>>({});
   const [redemptionsMap, setRedemptionsMap] = useState<Record<number, string>>({});
+
+  // Deposit QR & Cancel State
+  const [systemParams, setSystemParams] = useState<SystemParameterDto | null>(null);
+  const [depositModalData, setDepositModalData] = useState<{
+    bookingId: number;
+    amount: number;
+    accountNumber: string;
+    accountName: string;
+    bin: string;
+    description: string;
+    qrCode?: string;
+    qrImageUrl?: string;
+    checkoutUrl?: string;
+  } | null>(null);
+  const [isCheckingDeposit, setIsCheckingDeposit] = useState<boolean>(false);
+  const [isCancellingDeposit, setIsCancellingDeposit] = useState<boolean>(false);
+  const [confirmCancelBookingId, setConfirmCancelBookingId] = useState<number | null>(null);
 
   const loadHistory = async () => {
     if (!isLoggedIn || !user?.phone) return;
@@ -34,6 +52,8 @@ export default function HistoryScreen() {
   };
 
   useEffect(() => {
+    systemParameterService.getSystemParameter().then(setSystemParams).catch(() => null);
+
     if (isLoggedIn && user?.phone) {
       loadHistory();
       loyaltyService.getMyRedemptions().then(res => {
@@ -54,11 +74,100 @@ export default function HistoryScreen() {
     }).catch(() => { });
   }, [isLoggedIn, user]);
 
+  // Polling for deposit status when deposit QR modal is open
+  useEffect(() => {
+    let interval: any;
+    if (depositModalData?.bookingId) {
+      interval = setInterval(async () => {
+        try {
+          const detailRes = await bookingService.getBookingDetail(depositModalData.bookingId);
+          const currentStatus = detailRes?.data?.status || detailRes?.data?.bookingStatus;
+          if (currentStatus === 'Deposited') {
+            setDepositModalData(null);
+            loadHistory();
+            Alert.alert('Thành công 🎉', 'Thanh toán cọc thành công! Lịch hẹn của bạn đã được xác nhận!');
+          }
+        } catch {
+          // silent catch
+        }
+      }, 3000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [depositModalData?.bookingId]);
+
+  const handleOpenDepositQr = async (bId: number) => {
+    try {
+      const payRes = await bookingService.createDepositPayment(bId);
+      if (payRes) {
+        const depositAmt = payRes.amount ?? payRes.Amount ?? 0;
+        const isPaid = payRes.status === 'PAID' || payRes.Status === 'PAID';
+        if (depositAmt <= 0 || isPaid) {
+          loadHistory();
+          Alert.alert('Thành công 🎉', '🎉 Đơn hàng miễn phí 100% cọc! Trạng thái đã tự động cập nhật.');
+        } else {
+          setDepositModalData({
+            bookingId: bId,
+            amount: depositAmt,
+            accountNumber: payRes.accountNumber || payRes.AccountNumber || '',
+            accountName: payRes.accountName || payRes.AccountName || '',
+            bin: payRes.bin || payRes.Bin || '',
+            description: payRes.description || payRes.Description || `Deposit for booking ${bId}`,
+            qrCode: payRes.qrCode || payRes.QrCode,
+            qrImageUrl: payRes.qrImageUrl || payRes.QrImageUrl,
+            checkoutUrl: payRes.checkoutUrl || payRes.CheckoutUrl
+          });
+        }
+      }
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tạo mã QR thanh toán cọc.');
+    }
+  };
+
+  const handleCheckDepositStatus = async () => {
+    if (!depositModalData?.bookingId) return;
+    setIsCheckingDeposit(true);
+    try {
+      const detailRes = await bookingService.getBookingDetail(depositModalData.bookingId);
+      const currentStatus = detailRes?.data?.status || detailRes?.data?.bookingStatus;
+      if (currentStatus === 'Deposited') {
+        setDepositModalData(null);
+        loadHistory();
+        Alert.alert('Thành công 🎉', 'Đã xác nhận thanh toán đặt cọc thành công!');
+      } else {
+        Alert.alert('Thông báo', 'Hệ thống chưa nhận được giao dịch. Vui lòng hoàn tất chuyển khoản và kiểm tra lại.');
+      }
+    } catch (err) {
+      Alert.alert('Lỗi', 'Không thể kiểm tra trạng thái thanh toán.');
+    } finally {
+      setIsCheckingDeposit(false);
+    }
+  };
+
+  const handleConfirmCancel = async (bookingId: number) => {
+    if (!bookingId) return;
+    setIsCancellingDeposit(true);
+    try {
+      await bookingService.cancelBooking(bookingId);
+      Alert.alert('Thông báo', `Đơn đặt lịch #${bookingId} đã được chuyển sang trạng thái Đã Hủy.`);
+      setConfirmCancelBookingId(null);
+      setDepositModalData(null);
+      loadHistory();
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể hủy đơn đặt lịch. Vui lòng thử lại.');
+    } finally {
+      setIsCancellingDeposit(false);
+    }
+  };
+
   const filtered = historyData
     .filter(i => {
+      const st = i.status.toLowerCase();
       if (filterStatus === 'all') return true;
-      if (filterStatus === 'completed') return i.status.toLowerCase() === 'completed';
-      if (filterStatus === 'cancelled') return i.status.toLowerCase() === 'cancelled';
+      if (filterStatus === 'active') return ['pending', 'deposited', 'confirmed', 'washing'].includes(st);
+      if (filterStatus === 'completed') return ['completed', 'checkedout'].includes(st);
+      if (filterStatus === 'cancelled') return st === 'cancelled';
       return true;
     })
     .sort((a, b) => b.bookingId - a.bookingId);
@@ -87,6 +196,15 @@ export default function HistoryScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              onPress={() => setFilterStatus('active')}
+              style={[styles.filterBtn, filterStatus === 'active' ? { backgroundColor: '#3b82f6', borderColor: '#2563eb' } : styles.filterBtnInactive]}
+            >
+              <Text style={[styles.filterText, filterStatus === 'active' ? styles.filterTextActive : styles.filterTextInactive]}>
+                Đang Thực Hiện
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               onPress={() => setFilterStatus('completed')}
               style={[styles.filterBtn, filterStatus === 'completed' ? styles.filterBtnActiveCompleted : styles.filterBtnInactive]}
             >
@@ -110,97 +228,139 @@ export default function HistoryScreen() {
             <ActivityIndicator size="large" color="#f97316" style={{ marginTop: 40 }} />
           ) : filtered.length === 0 ? (
             <Text style={{ textAlign: 'center', marginTop: 40, color: '#64748b' }}>Không có dữ liệu lịch sử đặt lịch.</Text>
-          ) : filtered.map((item) => (
-            <View key={item.bookingId} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={{ flex: 1, gap: 4 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={styles.idBadge}>
-                      <Text style={styles.idText}>Mã Lịch hẹn-{item.bookingId}</Text>
+          ) : filtered.map((item) => {
+            const st = item.status.toLowerCase();
+            const isBike = (item.vehicleType || '').toLowerCase().includes('bike') || (item.vehicleType || '').toLowerCase().includes('xe máy');
+            const bikeRate = systemParams?.bikeDepositAmount ?? 20000;
+            const carPercent = systemParams?.carDepositPercentage ?? 20;
+            const depositAmtEst = item.depositAmount ?? (isBike ? Math.min(bikeRate, item.finalPrice ?? 0) : Math.round(((item.finalPrice ?? 0) * carPercent) / 100));
+            const remainingAmt = Math.max(0, (item.finalPrice ?? 0) - depositAmtEst);
+
+            return (
+              <View key={item.bookingId} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={styles.idBadge}>
+                        <Text style={styles.idText}>Mã Lịch hẹn-{item.bookingId}</Text>
+                      </View>
                     </View>
+                    {(item.appliedReward || item.redemptionId || item.promotionId || item.promoCode) && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {(item.appliedReward || item.redemptionId) && (
+                          <View style={styles.rewardBadgeCard}>
+                            <Text style={styles.rewardBadgeCardText}>
+                              🎁 {item.appliedReward?.serviceName || item.appliedReward?.rewardName || (item.redemptionId ? redemptionsMap[item.redemptionId] : null) || 'Đổi thưởng'}
+                            </Text>
+                          </View>
+                        )}
+                        {(item.promotionId || item.promoCode) && (
+                          <View style={styles.promoBadgeCard}>
+                            <Text style={styles.promoBadgeCardText}>
+                              🏷️ {item.promoCode || (item.promotionId ? promotionsMap[item.promotionId] : null) || 'Khuyến mãi'}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </View>
-                  {(item.appliedReward || item.redemptionId || item.promotionId || item.promoCode) && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      {(item.appliedReward || item.redemptionId) && (
-                        <View style={styles.rewardBadgeCard}>
-                          <Text style={styles.rewardBadgeCardText}>
-                            🎁 {item.appliedReward?.serviceName || item.appliedReward?.rewardName || (item.redemptionId ? redemptionsMap[item.redemptionId] : null) || 'Đổi thưởng'}
-                          </Text>
-                        </View>
-                      )}
-                      {(item.promotionId || item.promoCode) && (
-                        <View style={styles.promoBadgeCard}>
-                          <Text style={styles.promoBadgeCardText}>
-                            🏷️ {item.promoCode || (item.promotionId ? promotionsMap[item.promotionId] : null) || 'Khuyến mãi'}
-                          </Text>
-                        </View>
-                      )}
+
+                  {st === 'completed' || st === 'checkedout' ? (
+                    <View style={[styles.statusBadge, styles.statusBadgeCompleted]}>
+                      <CheckCircle2 color="#059669" size={12} />
+                      <Text style={[styles.statusText, { color: '#047857' }]}>Đã Hoàn Thành</Text>
+                    </View>
+                  ) : st === 'cancelled' ? (
+                    <View style={[styles.statusBadge, styles.statusBadgeCancelled]}>
+                      <XCircle color="#e11d48" size={12} />
+                      <Text style={[styles.statusText, { color: '#be123c' }]}>Đã Hủy</Text>
+                    </View>
+                  ) : st === 'deposited' ? (
+                    <View style={[styles.statusBadge, { backgroundColor: '#ccfbf1', borderColor: '#99f6e4' }]}>
+                      <CreditCard color="#0d9488" size={12} />
+                      <Text style={[styles.statusText, { color: '#0f766e' }]}>Đã Đặt Cọc</Text>
+                    </View>
+                  ) : st === 'confirmed' ? (
+                    <View style={[styles.statusBadge, { backgroundColor: '#e0e7ff', borderColor: '#c7d2fe' }]}>
+                      <CheckCircle2 color="#4f46e5" size={12} />
+                      <Text style={[styles.statusText, { color: '#4338ca' }]}>Đã Xác Nhận</Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.statusBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+                      <Clock color="#d97706" size={12} />
+                      <Text style={[styles.statusText, { color: '#b45309' }]}>Chờ Thanh Toán Cọc</Text>
                     </View>
                   )}
                 </View>
 
-                {item.status.toLowerCase() === 'completed' ? (
-                  <View style={[styles.statusBadge, styles.statusBadgeCompleted]}>
-                    <CheckCircle2 color="#059669" size={12} />
-                    <Text style={[styles.statusText, { color: '#047857' }]}>Đã Hoàn Thành</Text>
-                  </View>
-                ) : item.status.toLowerCase() === 'cancelled' ? (
-                  <View style={[styles.statusBadge, styles.statusBadgeCancelled]}>
-                    <XCircle color="#e11d48" size={12} />
-                    <Text style={[styles.statusText, { color: '#be123c' }]}>Đã Hủy</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe' }]}>
-                    <Text style={[styles.statusText, { color: '#0369a1' }]}>{item.status}</Text>
-                  </View>
-                )}
-              </View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.serviceName}>{item.serviceName}</Text>
 
-              <View style={styles.cardBody}>
-                <Text style={styles.serviceName}>{item.serviceName}</Text>
+                  {item.addOns && item.addOns.length > 0 && (
+                    <View style={{ marginBottom: 8 }}>
+                      {item.addOns.map(addon => (
+                        <View key={addon.bookingAddOnId} style={styles.addOnTag}>
+                          <PlusCircle color="#ea580c" size={12} />
+                          <Text style={styles.addOnText}>+ {addon.serviceName}</Text>
+                          {addon.finalPrice === 0 && (
+                            <View style={styles.freeBadge}>
+                              <Text style={styles.freeBadgeText}>Miễn phí</Text>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  )}
 
-                {item.addOns && item.addOns.length > 0 && (
-                  <View style={{ marginBottom: 8 }}>
-                    {item.addOns.map(addon => (
-                      <View key={addon.bookingAddOnId} style={styles.addOnTag}>
-                        <PlusCircle color="#ea580c" size={12} />
-                        <Text style={styles.addOnText}>+ {addon.serviceName}</Text>
-                        {addon.finalPrice === 0 && (
-                          <View style={styles.freeBadge}>
-                            <Text style={styles.freeBadgeText}>Miễn phí</Text>
-                          </View>
-                        )}
-                      </View>
-                    ))}
+                  <View style={styles.iconRow}>
+                    <CalendarIcon color="#f97316" size={14} />
+                    <Text style={styles.iconText}>{new Date(item.bookingDate).toLocaleDateString('vi-VN')} • {item.startTime?.substring(0, 5)} - {item.endTime?.substring(0, 5)}</Text>
                   </View>
-                )}
-
-                <View style={styles.iconRow}>
-                  <CalendarIcon color="#f97316" size={14} />
-                  <Text style={styles.iconText}>{new Date(item.bookingDate).toLocaleDateString('vi-VN')} • {item.startTime?.substring(0, 5)} - {item.endTime?.substring(0, 5)}</Text>
-                </View>
-                <View style={styles.iconRow}>
-                  <MapPin color="#94a3b8" size={14} />
-                  <Text style={styles.iconTextDim}>{item.licensePlate ? `${item.licensePlate} (${item.vehicleType || 'Xe'})` : 'Chi nhánh HybridWash'}</Text>
-                </View>
-              </View>
-
-              <View style={styles.cardFooter}>
-                <View>
-                  <Text style={styles.footerLabel}>Tổng thanh toán:</Text>
-                  <Text style={styles.footerValue}>{(item.finalPrice ?? 0).toLocaleString('vi-VN')}đ</Text>
+                  <View style={styles.iconRow}>
+                    <MapPin color="#94a3b8" size={14} />
+                    <Text style={styles.iconTextDim}>{item.licensePlate ? `${item.licensePlate} (${item.vehicleType || 'Xe'})` : 'Chi nhánh HybridWash'}</Text>
+                  </View>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.detailBtn}
-                  onPress={() => setSelectedBooking(item)}
-                >
-                  <Text style={styles.detailBtnText}>Xem Chi Tiết</Text>
-                  <ChevronRight color="#ea580c" size={16} />
-                </TouchableOpacity>
+                <View style={styles.cardFooter}>
+                  <View>
+                    <Text style={styles.footerLabel}>{st === 'deposited' ? 'Còn lại trả tại tiệm:' : 'Tổng thanh toán:'}</Text>
+                    <Text style={styles.footerValue}>
+                      {(st === 'deposited' ? remainingAmt : (item.finalPrice ?? 0)).toLocaleString('vi-VN')}đ
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                    {st === 'pending' && (
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#ea580c', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}
+                        onPress={() => handleOpenDepositQr(item.bookingId)}
+                      >
+                        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 11 }}>Cọc Ngay</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {['pending', 'confirmed'].includes(st) && (
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#fff1f2', borderWidth: 1, borderColor: '#fecdd3', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10 }}
+                        onPress={() => setConfirmCancelBookingId(item.bookingId)}
+                      >
+                        <Text style={{ color: '#e11d48', fontWeight: 'bold', fontSize: 11 }}>Hủy Đơn</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={styles.detailBtn}
+                      onPress={() => setSelectedBooking(item)}
+                    >
+                      <Text style={styles.detailBtnText}>Chi Tiết</Text>
+                      <ChevronRight color="#ea580c" size={14} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
 
         </View>
       </ScrollView>
@@ -348,6 +508,153 @@ export default function HistoryScreen() {
               <TouchableOpacity onPress={() => setSelectedBooking(null)} style={styles.closeModalBtn}>
                 <Text style={styles.closeModalBtnText}>Đóng</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* PayOS VietQR Deposit Payment Modal */}
+      {depositModalData && (
+        <Modal
+          visible={!!depositModalData}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setDepositModalData(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 20 }}>
+              <View style={[styles.modalContent, { maxHeight: '90%', padding: 20 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ padding: 8, backgroundColor: '#ea580c', borderRadius: 12 }}>
+                      <CreditCard color="white" size={20} />
+                    </View>
+                    <View>
+                      <Text style={{ fontWeight: '800', fontSize: 16, color: '#0f172a' }}>Thanh Toán Tiền Cọc</Text>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Mã lịch hẹn #{depositModalData.bookingId}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={() => setDepositModalData(null)}>
+                    <XCircle color="#94a3b8" size={22} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* QR Display */}
+                <View style={{ alignItems: 'center', marginVertical: 12 }}>
+                  <View style={{ padding: 12, backgroundColor: '#fff', borderRadius: 20, borderWidth: 2, borderColor: '#ffedd5', shadowColor: '#ea580c', shadowOpacity: 0.1, shadowRadius: 10, elevation: 4 }}>
+                    {depositModalData.qrImageUrl ? (
+                      <Image source={{ uri: depositModalData.qrImageUrl }} style={{ width: 200, height: 200 }} resizeMode="contain" />
+                    ) : (
+                      <QRCodeSVG value={depositModalData.qrCode || depositModalData.checkoutUrl || ''} size={190} />
+                    )}
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>Quét mã bằng App Ngân Hàng để chuyển khoản cọc</Text>
+                </View>
+
+                {/* Info Card */}
+                <View style={{ backgroundColor: '#f8fafc', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0', gap: 10, marginVertical: 12 }}>
+                  {depositModalData.accountName && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Chủ tài khoản:</Text>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#0f172a' }}>{depositModalData.accountName}</Text>
+                    </View>
+                  )}
+                  {depositModalData.accountNumber && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Số tài khoản:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#ea580c' }}>{depositModalData.accountNumber}</Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 12, color: '#64748b' }}>Số tiền cọc:</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: '#e11d48' }}>{depositModalData.amount.toLocaleString('vi-VN')}đ</Text>
+                  </View>
+                  {depositModalData.description && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, color: '#64748b' }}>Nội dung CK:</Text>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#b45309', backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>{depositModalData.description}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Action Buttons */}
+                <View style={{ gap: 10, marginTop: 4 }}>
+                  <TouchableOpacity
+                    onPress={handleCheckDepositStatus}
+                    disabled={isCheckingDeposit}
+                    style={{ backgroundColor: '#f97316', paddingVertical: 14, borderRadius: 14, alignItems: 'center', opacity: isCheckingDeposit ? 0.7 : 1 }}
+                  >
+                    {isCheckingDeposit ? (
+                      <ActivityIndicator color="white" size="small" />
+                    ) : (
+                      <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>Tôi Đã Chuyển Khoản - Kiểm Tra Ngay</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setDepositModalData(null)}
+                    style={{ backgroundColor: '#f1f5f9', paddingVertical: 12, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1' }}
+                  >
+                    <Text style={{ color: '#334155', fontWeight: 'bold', fontSize: 13 }}>Đóng (Thanh Toán Sau)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setConfirmCancelBookingId(depositModalData.bookingId)}
+                    disabled={isCancellingDeposit}
+                    style={{ backgroundColor: '#fff1f2', paddingVertical: 12, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#fecdd3' }}
+                  >
+                    <Text style={{ color: '#e11d48', fontWeight: 'bold', fontSize: 13 }}>Hủy Đơn Lịch Hẹn Này</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </Modal>
+      )}
+
+      {/* Confirm Cancel Modal */}
+      {confirmCancelBookingId && (
+        <Modal
+          visible={!!confirmCancelBookingId}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setConfirmCancelBookingId(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: 'auto', padding: 24, alignItems: 'center' }]}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fecdd3', marginBottom: 16 }}>
+                <AlertTriangle color="#e11d48" size={28} />
+              </View>
+
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', marginBottom: 8, textAlign: 'center' }}>
+                Xác Nhận Hủy Lịch Hẹn
+              </Text>
+              <Text style={{ fontSize: 13, color: '#475569', textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+                Bạn có chắc chắn muốn hủy đơn đặt lịch <Text style={{ fontWeight: 'bold', color: '#ea580c' }}>#{confirmCancelBookingId}</Text> này không?
+                {'\n'}<Text style={{ color: '#e11d48', fontWeight: '600' }}>⚠️ Thao tác này sẽ hủy suất giữ chỗ và không thể hoàn tác.</Text>
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                <TouchableOpacity
+                  onPress={() => setConfirmCancelBookingId(null)}
+                  disabled={isCancellingDeposit}
+                  style={{ flex: 1, paddingVertical: 12, backgroundColor: '#f1f5f9', borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1' }}
+                >
+                  <Text style={{ fontWeight: 'bold', color: '#475569', fontSize: 14 }}>Quay Lại</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => handleConfirmCancel(confirmCancelBookingId)}
+                  disabled={isCancellingDeposit}
+                  style={{ flex: 1, paddingVertical: 12, backgroundColor: '#e11d48', borderRadius: 12, alignItems: 'center' }}
+                >
+                  {isCancellingDeposit ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <Text style={{ fontWeight: 'bold', color: 'white', fontSize: 14 }}>Xác Nhận Hủy</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
