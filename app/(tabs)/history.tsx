@@ -88,7 +88,9 @@ export default function HistoryScreen() {
           if (currentStatus === 'Deposited') {
             setDepositModalData(null);
             loadHistory();
-            Alert.alert('Thành công 🎉', 'Thanh toán cọc thành công! Lịch hẹn của bạn đã được xác nhận!');
+            setTimeout(() => {
+              Alert.alert('Thành công 🎉', 'Thanh toán cọc thành công! Lịch hẹn của bạn đã được xác nhận!');
+            }, 500);
           }
         } catch {
           // silent catch
@@ -137,7 +139,9 @@ export default function HistoryScreen() {
       if (currentStatus === 'Deposited') {
         setDepositModalData(null);
         loadHistory();
-        Alert.alert('Thành công 🎉', 'Đã xác nhận thanh toán đặt cọc thành công!');
+        setTimeout(() => {
+          Alert.alert('Thành công 🎉', 'Đã xác nhận thanh toán đặt cọc thành công!');
+        }, 500);
       } else {
         Alert.alert('Thông báo', 'Hệ thống chưa nhận được giao dịch. Vui lòng hoàn tất chuyển khoản và kiểm tra lại.');
       }

@@ -389,17 +389,7 @@ export default function AccountScreen() {
                         </LinearGradient>
                       </TouchableOpacity>
 
-                      <View style={styles.demoBox}>
-                        <Text style={styles.demoText}>Dùng thử nhanh không cần tạo tài khoản:</Text>
-                        <View style={styles.demoRow}>
-                          <TouchableOpacity onPress={() => fillDemoAccount('Khách Hàng Mới')} style={styles.demoBtnCustomer}>
-                            <Text style={styles.demoBtnCustomerText}>Tài khoản Demo KH</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => fillDemoAccount('admin')} style={styles.demoBtnAdmin}>
-                            <Text style={styles.demoBtnAdminText}>Tài khoản Admin</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+
                     </>
                   )}
                 </View>
