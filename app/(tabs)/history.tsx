@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar as CalendarIcon, CheckCircle2, XCircle, MapPin, QrCode, Tag, PlusCircle, X, ChevronRight, CreditCard, AlertTriangle, Clock } from 'lucide-react-native';
 import QRCodeSVG from 'react-native-qrcode-svg';
+import { useFocusEffect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService, BookingResponseDTO } from '../../services/bookingService';
 import { promotionService } from '../../services/promotionService';
@@ -51,28 +52,30 @@ export default function HistoryScreen() {
     }
   };
 
-  useEffect(() => {
-    systemParameterService.getSystemParameter().then(setSystemParams).catch(() => null);
+  useFocusEffect(
+    useCallback(() => {
+      systemParameterService.getSystemParameter().then(setSystemParams).catch(() => null);
 
-    if (isLoggedIn && user?.phone) {
-      loadHistory();
-      loyaltyService.getMyRedemptions().then(res => {
+      if (isLoggedIn && user?.phone) {
+        loadHistory();
+        loyaltyService.getMyRedemptions().then(res => {
+          const map: Record<number, string> = {};
+          const list = Array.isArray(res) ? res : (res as any)?.data || [];
+          list.forEach((r: any) => map[r.redemptionId] = r.rewardName);
+          setRedemptionsMap(map);
+        }).catch(() => { });
+      } else {
+        setHistoryData([]);
+        setRedemptionsMap({});
+      }
+
+      promotionService.getPublicPromotions().then(res => {
         const map: Record<number, string> = {};
-        const list = Array.isArray(res) ? res : (res as any)?.data || [];
-        list.forEach((r: any) => map[r.redemptionId] = r.rewardName);
-        setRedemptionsMap(map);
+        if (Array.isArray(res)) res.forEach(p => map[p.promotionId] = p.promoName);
+        setPromotionsMap(map);
       }).catch(() => { });
-    } else {
-      setHistoryData([]);
-      setRedemptionsMap({});
-    }
-
-    promotionService.getPublicPromotions().then(res => {
-      const map: Record<number, string> = {};
-      if (Array.isArray(res)) res.forEach(p => map[p.promotionId] = p.promoName);
-      setPromotionsMap(map);
-    }).catch(() => { });
-  }, [isLoggedIn, user]);
+    }, [isLoggedIn, user])
+  );
 
   // Polling for deposit status when deposit QR modal is open
   useEffect(() => {
