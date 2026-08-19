@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { loyaltyService } from '../services/loyaltyService';
 
@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (phone: string, token: string, fullName: string, role: string) => {
+  const login = useCallback(async (phone: string, token: string, fullName: string, role: string) => {
     // Lưu thông tin vào AsyncStorage
     await AsyncStorage.setItem('userToken', token);
     await AsyncStorage.setItem('userPhone', phone);
@@ -108,9 +108,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (role.toLowerCase() === 'customer') {
       await fetchLoyaltyInfo();
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       setIsLoggedIn(false);
       setUser(null);
@@ -125,9 +125,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error('Lỗi khi xoá dữ liệu:', e);
     }
-  };
+  }, []);
 
-  const refreshLoyalty = async (points?: number, tier?: string) => {
+  const refreshLoyalty = useCallback(async (points?: number, tier?: string) => {
     if (isLoggedIn && user?.role.toLowerCase() === 'customer') {
       if (points !== undefined && tier !== undefined) {
         setUser(prev => prev ? { ...prev, points, tier } : null);
@@ -137,10 +137,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetchLoyaltyInfo();
       }
     }
-  };
+  }, [isLoggedIn, user?.role]);
+
+  const contextValue = useMemo(() => ({
+    isLoggedIn,
+    user,
+    isLoading,
+    login,
+    logout,
+    refreshLoyalty,
+  }), [isLoggedIn, user, isLoading, login, logout, refreshLoyalty]);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, user, isLoading, login, logout, refreshLoyalty }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

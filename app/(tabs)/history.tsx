@@ -10,6 +10,85 @@ import { promotionService } from '../../services/promotionService';
 import { loyaltyService } from '../../services/loyaltyService';
 import { systemParameterService, SystemParameterDto } from '../../services/systemParameterService';
 
+const parseApiDate = (dateInput?: string | Date | null): Date | null => {
+  if (!dateInput) return null;
+  if (dateInput instanceof Date) return dateInput;
+
+  let date = new Date(dateInput);
+  if (isNaN(date.getTime())) return null;
+
+  if (typeof dateInput === 'string' && dateInput.includes('T') && !dateInput.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateInput)) {
+    const utcDate = new Date(`${dateInput}Z`);
+    if (!isNaN(utcDate.getTime())) {
+      date = utcDate;
+    }
+  }
+
+  return date;
+};
+
+const isBookingExpired = (createdAt?: string | Date) => {
+  if (!createdAt) return false;
+  const parsed = parseApiDate(createdAt);
+  if (!parsed) return false;
+  return (parsed.getTime() + 1 * 60 * 1000) <= Date.now();
+};
+
+const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => void }> = ({ createdAt, onExpire }) => {
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const hasExpiredRef = React.useRef(false);
+  const onExpireRef = React.useRef(onExpire);
+
+  React.useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+
+  React.useEffect(() => {
+    if (!createdAt) return;
+
+    let isInitialCheck = true;
+    hasExpiredRef.current = false;
+
+    const calculateTime = () => {
+      const parsed = parseApiDate(createdAt);
+      if (!parsed) return;
+      const createdTime = parsed.getTime();
+      const expireTime = createdTime + 1 * 60 * 1000;
+      const diff = Math.floor((expireTime - Date.now()) / 1000);
+      if (diff <= 0) {
+        setTimeLeft(0);
+        // Only trigger onExpire if the timer transitioned to 0 while active (not already expired on mount)
+        if (!hasExpiredRef.current && !isInitialCheck) {
+          hasExpiredRef.current = true;
+          onExpireRef.current?.();
+        }
+      } else {
+        setTimeLeft(diff);
+      }
+      isInitialCheck = false;
+    };
+
+    calculateTime();
+    const timer = setInterval(calculateTime, 1000);
+    return () => clearInterval(timer);
+  }, [createdAt]);
+
+  if (timeLeft === null) return null;
+  if (timeLeft <= 0) {
+    return <Text style={{ color: '#e11d48', fontWeight: 'bold', fontSize: 11 }}>(Hết hạn cọc)</Text>;
+  }
+
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+  const formatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+  return (
+    <Text style={{ color: '#d97706', fontWeight: 'bold', fontSize: 11 }}>
+      (Hạn cọc: {formatted})
+    </Text>
+  );
+};
+
 export default function HistoryScreen() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const { user, isLoggedIn } = useAuth();
@@ -32,32 +111,41 @@ export default function HistoryScreen() {
     qrCode?: string;
     qrImageUrl?: string;
     checkoutUrl?: string;
+    createdAt?: string | Date;
   } | null>(null);
   const [isCheckingDeposit, setIsCheckingDeposit] = useState<boolean>(false);
   const [isCancellingDeposit, setIsCancellingDeposit] = useState<boolean>(false);
   const [confirmCancelBookingId, setConfirmCancelBookingId] = useState<number | null>(null);
 
-  const loadHistory = async () => {
-    if (!isLoggedIn || !user?.phone) return;
-    setLoading(true);
+  const userPhone = user?.phone;
+
+  const loadHistory = useCallback(async (isSilent = false) => {
+    if (!isLoggedIn || !userPhone) return;
+    if (!isSilent && historyData.length === 0) setLoading(true);
     try {
-      const response = await bookingService.getBookingHistory(user.phone);
-      if (response && response.data) {
-        setHistoryData(response.data);
-      }
+      const response = await bookingService.getBookingHistory(userPhone);
+      const list = (response as any)?.data || (Array.isArray(response) ? response : []);
+      setHistoryData(list);
     } catch (error) {
       console.error('Error fetching history:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [isLoggedIn, userPhone, historyData.length]);
+
+  // Use a ref so useFocusEffect can call the latest loadHistory
+  // without it being a dependency (which would cause re-runs on every render)
+  const loadHistoryRef = React.useRef(loadHistory);
+  React.useEffect(() => {
+    loadHistoryRef.current = loadHistory;
+  }, [loadHistory]);
 
   useFocusEffect(
     useCallback(() => {
       systemParameterService.getSystemParameter().then(setSystemParams).catch(() => null);
 
-      if (isLoggedIn && user?.phone) {
-        loadHistory();
+      if (isLoggedIn && userPhone) {
+        loadHistoryRef.current();
         loyaltyService.getMyRedemptions().then(res => {
           const map: Record<number, string> = {};
           const list = Array.isArray(res) ? res : (res as any)?.data || [];
@@ -74,7 +162,7 @@ export default function HistoryScreen() {
         if (Array.isArray(res)) res.forEach(p => map[p.promotionId] = p.promoName);
         setPromotionsMap(map);
       }).catch(() => { });
-    }, [isLoggedIn, user])
+    }, [isLoggedIn, userPhone])
   );
 
   // Polling for deposit status when deposit QR modal is open
@@ -83,6 +171,13 @@ export default function HistoryScreen() {
     if (depositModalData?.bookingId) {
       interval = setInterval(async () => {
         try {
+          if (depositModalData.createdAt && isBookingExpired(depositModalData.createdAt)) {
+            setDepositModalData(null);
+            Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+            loadHistory();
+            return;
+          }
+
           const detailRes = await bookingService.getBookingDetail(depositModalData.bookingId);
           const currentStatus = detailRes?.data?.status || detailRes?.data?.bookingStatus;
           if (currentStatus === 'Deposited') {
@@ -100,9 +195,14 @@ export default function HistoryScreen() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [depositModalData?.bookingId]);
+  }, [depositModalData?.bookingId, depositModalData?.createdAt]);
 
-  const handleOpenDepositQr = async (bId: number) => {
+  const handleOpenDepositQr = async (bId: number, createdAt?: string | Date) => {
+    if (createdAt && isBookingExpired(createdAt)) {
+      Alert.alert('Thông báo ⏱️', 'Lịch hẹn này đã hết hạn thanh toán cọc (quá 1 phút). Vui lòng đặt lại lịch mới!');
+      loadHistory();
+      return;
+    }
     try {
       const payRes = await bookingService.createDepositPayment(bId);
       if (payRes) {
@@ -121,7 +221,8 @@ export default function HistoryScreen() {
             description: payRes.description || payRes.Description || `Deposit for booking ${bId}`,
             qrCode: payRes.qrCode || payRes.QrCode,
             qrImageUrl: payRes.qrImageUrl || payRes.QrImageUrl,
-            checkoutUrl: payRes.checkoutUrl || payRes.CheckoutUrl
+            checkoutUrl: payRes.checkoutUrl || payRes.CheckoutUrl,
+            createdAt: createdAt
           });
         }
       }
@@ -321,9 +422,12 @@ export default function HistoryScreen() {
                       <Text style={[styles.statusText, { color: '#475569' }]}>Khách Không Đến</Text>
                     </View>
                   ) : st === 'pending' ? (
-                    <View style={[styles.statusBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
-                      <Clock color="#d97706" size={12} />
-                      <Text style={[styles.statusText, { color: '#b45309' }]}>Chờ Thanh Toán Cọc</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <View style={[styles.statusBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+                        <Clock color="#d97706" size={12} />
+                        <Text style={[styles.statusText, { color: '#b45309' }]}>Chờ Thanh Toán Cọc</Text>
+                      </View>
+                      <PendingCountdown createdAt={item.createdAt} onExpire={loadHistory} />
                     </View>
                   ) : (
                     <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#bae6fd' }]}>
@@ -375,10 +479,10 @@ export default function HistoryScreen() {
                   })()}
 
                   <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                    {st === 'pending' && (
+                    {st === 'pending' && !isBookingExpired(item.createdAt) && (
                       <TouchableOpacity
                         style={{ backgroundColor: '#ea580c', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}
-                        onPress={() => handleOpenDepositQr(item.bookingId)}
+                        onPress={() => handleOpenDepositQr(item.bookingId, item.createdAt)}
                       >
                         <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 11 }}>Cọc Ngay</Text>
                       </TouchableOpacity>
@@ -643,6 +747,20 @@ export default function HistoryScreen() {
                     <XCircle color="#94a3b8" size={22} />
                   </TouchableOpacity>
                 </View>
+
+                {depositModalData.createdAt && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 12, color: '#64748b' }}>Thời gian thanh toán còn lại: </Text>
+                    <PendingCountdown
+                      createdAt={depositModalData.createdAt}
+                      onExpire={() => {
+                        setDepositModalData(null);
+                        Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+                        loadHistory();
+                      }}
+                    />
+                  </View>
+                )}
 
                 {/* QR Display */}
                 <View style={{ alignItems: 'center', marginVertical: 12 }}>

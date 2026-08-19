@@ -63,6 +63,84 @@ export default function BookingScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewingService, setViewingService] = useState<ServiceDto | null>(null);
 
+const parseApiDate = (dateInput?: string | Date | null): Date | null => {
+  if (!dateInput) return null;
+  if (dateInput instanceof Date) return dateInput;
+
+  let date = new Date(dateInput);
+  if (isNaN(date.getTime())) return null;
+
+  if (typeof dateInput === 'string' && dateInput.includes('T') && !dateInput.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateInput)) {
+    const utcDate = new Date(`${dateInput}Z`);
+    if (!isNaN(utcDate.getTime())) {
+      date = utcDate;
+    }
+  }
+
+  return date;
+};
+
+const isBookingExpired = (createdAt?: string | Date) => {
+  if (!createdAt) return false;
+  const parsed = parseApiDate(createdAt);
+  if (!parsed) return false;
+  return (parsed.getTime() + 1 * 60 * 1000) <= Date.now();
+};
+
+const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => void }> = ({ createdAt, onExpire }) => {
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const hasExpiredRef = React.useRef(false);
+  const onExpireRef = React.useRef(onExpire);
+
+  React.useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+
+  React.useEffect(() => {
+    if (!createdAt) return;
+
+    let isInitialCheck = true;
+    hasExpiredRef.current = false;
+
+    const calculateTime = () => {
+      const parsed = parseApiDate(createdAt);
+      if (!parsed) return;
+      const createdTime = parsed.getTime();
+      const expireTime = createdTime + 1 * 60 * 1000;
+      const diff = Math.floor((expireTime - Date.now()) / 1000);
+      if (diff <= 0) {
+        setTimeLeft(0);
+        if (!hasExpiredRef.current && !isInitialCheck) {
+          hasExpiredRef.current = true;
+          onExpireRef.current?.();
+        }
+      } else {
+        setTimeLeft(diff);
+      }
+      isInitialCheck = false;
+    };
+
+    calculateTime();
+    const timer = setInterval(calculateTime, 1000);
+    return () => clearInterval(timer);
+  }, [createdAt]);
+
+  if (timeLeft === null) return null;
+  if (timeLeft <= 0) {
+    return <Text style={{ color: '#e11d48', fontWeight: 'bold', fontSize: 11 }}>(Hết hạn cọc)</Text>;
+  }
+
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+  const formatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+  return (
+    <Text style={{ color: '#d97706', fontWeight: 'bold', fontSize: 11 }}>
+      (Hạn cọc: {formatted})
+    </Text>
+  );
+};
+
   // Deposit QR Modal & Cancellation State
   const [systemParams, setSystemParams] = useState<SystemParameterDto | null>(null);
   const [depositModalData, setDepositModalData] = useState<{
@@ -75,6 +153,7 @@ export default function BookingScreen() {
     qrCode?: string;
     qrImageUrl?: string;
     checkoutUrl?: string;
+    createdAt?: string | Date;
   } | null>(null);
   const [isCheckingDeposit, setIsCheckingDeposit] = useState<boolean>(false);
   const [isCancellingDeposit, setIsCancellingDeposit] = useState<boolean>(false);
@@ -168,6 +247,12 @@ export default function BookingScreen() {
     if (depositModalData?.bookingId) {
       interval = setInterval(async () => {
         try {
+          if (depositModalData.createdAt && isBookingExpired(depositModalData.createdAt)) {
+            setDepositModalData(null);
+            Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+            return;
+          }
+
           const detailRes = await bookingService.getBookingDetail(depositModalData.bookingId);
           const currentStatus = detailRes?.data?.status || detailRes?.data?.bookingStatus;
           if (currentStatus === 'Deposited') {
@@ -183,7 +268,7 @@ export default function BookingScreen() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [depositModalData?.bookingId]);
+  }, [depositModalData?.bookingId, depositModalData?.createdAt]);
 
   const handleCheckDepositStatus = async () => {
     if (!depositModalData?.bookingId) return;
@@ -362,7 +447,8 @@ export default function BookingScreen() {
               description: payRes.description || payRes.Description || `Deposit for booking ${bookingResponse.bookingId}`,
               qrCode: payRes.qrCode || payRes.QrCode,
               qrImageUrl: payRes.qrImageUrl || payRes.QrImageUrl,
-              checkoutUrl: payRes.checkoutUrl || payRes.CheckoutUrl
+              checkoutUrl: payRes.checkoutUrl || payRes.CheckoutUrl,
+              createdAt: bookingResponse.createdAt || new Date().toISOString()
             });
           }
         } else {
@@ -909,6 +995,19 @@ export default function BookingScreen() {
                     <XCircle color="#94a3b8" size={22} />
                   </TouchableOpacity>
                 </View>
+
+                {depositModalData.createdAt && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 12, color: '#64748b' }}>Thời gian thanh toán còn lại: </Text>
+                    <PendingCountdown
+                      createdAt={depositModalData.createdAt}
+                      onExpire={() => {
+                        setDepositModalData(null);
+                        Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+                      }}
+                    />
+                  </View>
+                )}
 
                 {/* QR Display */}
                 <View style={{ alignItems: 'center', marginVertical: 12 }}>
