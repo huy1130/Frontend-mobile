@@ -84,7 +84,7 @@ const isBookingExpired = (createdAt?: string | Date) => {
   if (!createdAt) return false;
   const parsed = parseApiDate(createdAt);
   if (!parsed) return false;
-  return (parsed.getTime() + 1 * 60 * 1000) <= Date.now();
+  return (parsed.getTime() + 10 * 60 * 1000) <= Date.now();
 };
 
 const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => void }> = ({ createdAt, onExpire }) => {
@@ -106,7 +106,7 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
       const parsed = parseApiDate(createdAt);
       if (!parsed) return;
       const createdTime = parsed.getTime();
-      const expireTime = createdTime + 1 * 60 * 1000;
+      const expireTime = createdTime + 10 * 60 * 1000;
       const diff = Math.floor((expireTime - Date.now()) / 1000);
       if (diff <= 0) {
         setTimeLeft(0);
@@ -183,6 +183,18 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
     useCallback(() => {
       systemParameterService.getSystemParameter().then(setSystemParams).catch(() => null);
       serviceService.getActiveServices().then(setServices).catch(console.error);
+
+      if (selectedDate) {
+        setIsSlotsLoading(true);
+        timeSlotService.getAvailableSlots(selectedDate)
+          .then(slots => {
+            slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+            setTimeSlots(slots);
+          })
+          .catch(console.error)
+          .finally(() => setIsSlotsLoading(false));
+      }
+
       if (isLoggedIn) {
         customerService.getMyVehicles().then(res => {
           setVehicles(res.data);
@@ -225,7 +237,7 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
       } else {
         setAvailableDates(generateDates(7));
       }
-    }, [isLoggedIn])
+    }, [isLoggedIn, selectedDate])
   );
 
   useEffect(() => {
@@ -249,7 +261,7 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
         try {
           if (depositModalData.createdAt && isBookingExpired(depositModalData.createdAt)) {
             setDepositModalData(null);
-            Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+            Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 10 phút). Lịch hẹn đã bị dọn dẹp!');
             return;
           }
 
@@ -1003,7 +1015,7 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
                       createdAt={depositModalData.createdAt}
                       onExpire={() => {
                         setDepositModalData(null);
-                        Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+                        Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 10 phút). Lịch hẹn đã bị dọn dẹp!');
                       }}
                     />
                   </View>

@@ -31,7 +31,7 @@ const isBookingExpired = (createdAt?: string | Date) => {
   if (!createdAt) return false;
   const parsed = parseApiDate(createdAt);
   if (!parsed) return false;
-  return (parsed.getTime() + 1 * 60 * 1000) <= Date.now();
+  return (parsed.getTime() + 10 * 60 * 1000) <= Date.now();
 };
 
 const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => void }> = ({ createdAt, onExpire }) => {
@@ -53,7 +53,7 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
       const parsed = parseApiDate(createdAt);
       if (!parsed) return;
       const createdTime = parsed.getTime();
-      const expireTime = createdTime + 1 * 60 * 1000;
+      const expireTime = createdTime + 10 * 60 * 1000;
       const diff = Math.floor((expireTime - Date.now()) / 1000);
       if (diff <= 0) {
         setTimeLeft(0);
@@ -173,7 +173,7 @@ export default function HistoryScreen() {
         try {
           if (depositModalData.createdAt && isBookingExpired(depositModalData.createdAt)) {
             setDepositModalData(null);
-            Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+            Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 10 phút). Lịch hẹn đã bị dọn dẹp!');
             loadHistory();
             return;
           }
@@ -199,7 +199,7 @@ export default function HistoryScreen() {
 
   const handleOpenDepositQr = async (bId: number, createdAt?: string | Date) => {
     if (createdAt && isBookingExpired(createdAt)) {
-      Alert.alert('Thông báo ⏱️', 'Lịch hẹn này đã hết hạn thanh toán cọc (quá 1 phút). Vui lòng đặt lại lịch mới!');
+      Alert.alert('Thông báo ⏱️', 'Lịch hẹn này đã hết hạn thanh toán cọc (quá 10 phút). Vui lòng đặt lại lịch mới!');
       loadHistory();
       return;
     }
@@ -755,7 +755,7 @@ export default function HistoryScreen() {
                       createdAt={depositModalData.createdAt}
                       onExpire={() => {
                         setDepositModalData(null);
-                        Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 1 phút). Lịch hẹn đã bị dọn dẹp!');
+                        Alert.alert('Thông báo ⏱️', 'Mã QR cọc đã hết hạn thanh toán (quá 10 phút). Lịch hẹn đã bị dọn dẹp!');
                         loadHistory();
                       }}
                     />
