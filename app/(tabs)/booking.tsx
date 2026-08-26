@@ -171,10 +171,13 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
 
   const generateDates = (days: number) => {
     const dates = [];
-    for (let i = 0; i < days; i++) {
+    for (let i = 0; i <= days; i++) {
       const d = new Date();
       d.setDate(d.getDate() + i);
-      dates.push(d.toISOString().split('T')[0]);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      dates.push(`${year}-${month}-${day}`);
     }
     return dates;
   };
@@ -206,13 +209,7 @@ const PendingCountdown: React.FC<{ createdAt?: string | Date; onExpire?: () => v
         }).catch(console.error);
 
         loyaltyService.getMySummary().then(res => {
-           let days = 7;
-           if (res && res.currentTier) {
-              const t = res.currentTier.toLowerCase();
-              if (t === 'silver') days = 10;
-              else if (t === 'gold') days = 12;
-              else if (t === 'platinum') days = 14;
-           }
+           const days = res?.bookingWindowDays ?? 7;
            setMaxDays(days);
            setAvailableDates(generateDates(days));
         }).catch(() => setAvailableDates(generateDates(7)));

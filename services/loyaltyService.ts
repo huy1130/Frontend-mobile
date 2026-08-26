@@ -5,6 +5,7 @@ export interface LoyaltySummary {
   currentTier: string;
   totalSpent: number;
   totalVisits: number;
+  bookingWindowDays?: number;
 }
 
 export const loyaltyService = {
